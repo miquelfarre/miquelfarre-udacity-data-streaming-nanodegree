@@ -1,0 +1,733 @@
+In this lesson you will learn about the greater 
+    Kafka ecosystem and how it can save you time and effort and even allow you to 
+        integrate legacy applications with Kafka. Specifically, you’ll see how you can use Kafka Connect to quickly 
+            integrate common data sources into Kafka, and move data from Kafka into other data stores. 
+                You’ll also see how we can use REST Proxy to consume and produce data to and from Kafka using only an HTTP client.
+
+Kafka Connect
+Kafka Connect is a web server and framework for integrating Kafka with external data sources such as SQL databases, log files, and HTTP endpoints.
+
+Reusability / Keep code simple
+May not even need. Reasons:
+    Saves time
+    Allows users to repeatedly implement similar Kafka integrations
+    Provides an abstraction from Kafka for application code
+    Decreases amount of code to maintain
+
+Connectors
+Tasks
+Kafka and target different formats
+Converters map data formats
+
+Kafka Connect - Summary
+    Kafka Connect can be used to handle common and repeated scenarios.
+    Kafka Connect is a web-server written in Java and Scala, and runs on the JVM.
+    Kafka Connect has a plugin architecture, meaning that you can easily write your own connectors in addition to using the rich open-source ecosystem of connectors.
+    By using Kafka Connect, you may be able to isolate your application entirely from integrating with a Kafka client library.
+
+Connectors:
+    Common: local source/sink
+            cloud: AWS S3
+            JDBC: mysql, postgres
+            HDFS source/sink
+
+Kafka connect API
+    Your Connector configuration can be Created, Updated, Deleted and Read (CRUD) via a REST API
+    You can check the status of a specific Connectors task(s) via the API
+    You can start, stop, and restart Connectors via the API
+    The choice of a REST API provides a wide-array of integration and management opportunities
+
+KC Pac
+
+./startup.sh
+
+## The Kafka Connect API
+
+In this demonstration we're going to make use of the Kafka Connect API.
+
+[See the documentation for more information on any of these actions](https:/
+/docs.confluent.io/current/connect/references/restapi.html).
+
+### Viewing Connectors
+
+First, we can view connector-plugins:
+
+`curl http://localhost:8083/connector-plugins | python -m json.tool`
+
+### Create a Connector
+
+Lets create a connector. We'll dive into more details on how this works later.
+
+```
+curl -X POST -H 'Content-Type: application/json' -d '{
+    "name": "first-connector",
+    "config": {
+        "connector.class": "FileStreamSource",
+        "tasks.max": 1,
+        "file": "/var/log/journal/confluent-kafka-connect.service.log",
+        "topic": "kafka-connect-logs"
+    }
+  }' \
+  http://localhost:8083/connectors
+```
+
+### List connectors
+
+We can list all configured connectors with:
+
+`curl http://localhost:8083/connectors | python -m json.tool`
+
+You can see our connector in the list.
+
+### Detailing connectors
+
+Let's list details on our connector:
+
+`curl http://localhost:8083/connectors/first-connector | python -m json.tool`
+
+### Pausing connectors
+
+Sometimes its desirable to pause or restart connectors:
+
+To pause:
+
+`curl -X PUT http://localhost:8083/connectors/first-connector/pause`
+
+To restart:
+
+`curl -X POST http://localhost:8083/connectors/first-connector/restart`
+
+### Deleting connectors
+
+Finally, to delete your connector:
+
+`curl -X DELETE http://localhost:8083/connectors/first-connector`
+
+Kafka Connect Connectors - Summary
+    Kafka Connect supports a number of Connectors for common data sources
+    Files on disk
+    Amazon S3 and Google Cloud Storage
+    SQL databases such as MySQL and Postgres
+    HDFS
+    Kafka Connect has an extensive REST API for managing and creating Connectors
+
+Key Kafka Connectors
+In this section you will learn how to use some of the most common Kafka Connectors, such as the JDBC sink and source connector and the FileStream Source connector.
+
+Kafka connect filestream Pac
+
+import asyncio
+import json
+
+import requests
+
+KAFKA_CONNECT_URL = "http://localhost:8083/connectors"
+CONNECTOR_NAME = "solution2"
+
+
+def configure_connector():
+    """Calls Kafka Connect to create the Connector"""
+    print("creating or updating kafka connect connector...")
+
+    rest_method = requests.post
+    resp = requests.get(f"{KAFKA_CONNECT_URL}/{CONNECTOR_NAME}")
+    if resp.status_code == 200:
+        return
+
+    #
+    # TODO: Complete the Kafka Connect Config below.
+    #       See: https://docs.confluent.io/current/connect/references/restapi.html
+    #       See: https://docs.confluent.io/current/connect/filestream_connector.html#filesource-connector
+    #
+    resp = rest_method(
+        KAFKA_CONNECT_URL,
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(
+            {
+                "name": CONNECTOR_NAME,
+                "config": {
+                    "connector.class": "FileStreamSource",  # TODO
+                    "topic": CONNECTOR_NAME,  # TODO
+                    "tasks.max": 1,  # TODO
+                    "file": f"/tmp/{CONNECTOR_NAME}.log",
+                    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+                    "key.converter.schemas.enable": "false",
+                    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+                    "value.converter.schemas.enable": "false",
+                },
+            }
+        ),
+    )
+
+    # Ensure a healthy response was given
+    resp.raise_for_status()
+    print("connector created successfully")
+
+
+async def log():
+    """Continually appends to the end of a file"""
+    with open(f"/tmp/{CONNECTOR_NAME}.log", "w") as f:
+        iteration = 0
+        while True:
+            f.write(f"log number {iteration}\n")
+            f.flush()
+            await asyncio.sleep(1.0)
+            iteration += 1
+
+
+async def log_task():
+    """Runs the log task"""
+    task = asyncio.create_task(log())
+    configure_connector()
+    await task
+
+
+def run():
+    """Runs the simulation"""
+    try:
+        asyncio.run(log_task())
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+if __name__ == "__main__":
+    run()
+
+`curl http://localhost:8083/connector-plugins | python -m json.tool`
+
+kafka-console-consumer -topic solution2 --bootstrap-server localhost:9092 --from-beginning
+
+cd /tmp
+cat sample2 -> si faig tail veure que va afegint dades
+
+JDBC Sinks and Sources
+    JDBC = Java DataBase Connector. The JDBC API is used to abstract the interface to SQL Databases for Java applications. In the case of Kafka Connect, JDBC is used to act as a generic interface to common databases such as MySQL, Postgres, etc.
+    JDBC Sinks are a common way to move data into Kafka from existing databases. Once the data is available in Kafka, it can be used in stream processing operations to enrich data or provide insights that may otherwise be missing
+    JDBC Sources are a common way to move data out of Kafka to traditional SQL datastores. This is a common way of making stream processing insights available for more ad-hoc or batch querying.
+
+JDBC Source PAC.
+
+Kafka Connect Troubleshooting Tips
+As demonstrated in the demo video above, if you run into trouble with Kafka Connect in the workspace exercise below, or during your project, here are some tips to help your debugging:
+
+First, use the REST API to check the connector status. curl http:<connect_url>/connectors/<your_connector>/status to see what the status of your connector is
+Next, use the REST API to check the task status for the connector. curl http:<connect_url>/connectors/<your_connector>/tasks/<task_id>/status to see what the status of your task is
+If you can’t deduce the failure from these two options, the next best bet is to examine the logs of Kafka Connect. Typically, a tool like tail or less is useful in examining the logs for Kafka Connect. On Linux systems, Kafka Connect logs are often available in /var/log/kafka/. Kafka Connect is often verbose and will indicate what the issue is that it is experiencing.
+
+If you are familiar with Java Management Extensions (JMX) and have access to the server, you may also opt to inspect its JMX metrics for information on failures. However, JMX is most useful for automated monitoring, so you likely will not receive any additional insights from using JMX vs the API or the logs.
+
+Pac
+
+import asyncio
+import json
+
+import requests
+
+
+KAFKA_CONNECT_URL = "http://localhost:8083/connectors"
+CONNECTOR_NAME = "solution3"
+
+
+def configure_connector():
+    """Calls Kafka Connect to create the Connector"""
+    print("creating or updating kafka connect connector...")
+
+    rest_method = requests.post
+    resp = requests.get(f"{KAFKA_CONNECT_URL}/{CONNECTOR_NAME}")
+    if resp.status_code == 200:
+        return
+
+    #
+    # TODO: Complete the Kafka Connect Config below for a JDBC source connector.
+    #       You should whitelist the `clicks` table, use incrementing mode and the
+    #       incrementing column name should be id.
+    #
+    #       See: https://docs.confluent.io/current/connect/references/restapi.html
+    #       See: https://docs.confluent.io/current/connect/kafka-connect-jdbc/source-connector/source_config_options.html
+    #
+    resp = rest_method(
+        KAFKA_CONNECT_URL,
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(
+            {
+                "name": "clicks-jdbc",  # TODO
+                "config": {
+                    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",  # TODO
+                    "topic.prefix": "solution3.",  # TODO
+                    "mode": "incrementing",  # TODO
+                    "incrementing.column.name": "id",  # TODO
+                    "table.whitelist": "clicks",  # TODO
+                    "tasks.max": 1,
+                    "connection.url": "jdbc:postgresql://localhost:5432/classroom",
+                    "connection.user": "root",
+                    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+                    "key.converter.schemas.enable": "false",
+                    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+                    "value.converter.schemas.enable": "false",
+                },
+            }
+        ),
+    )
+
+    # Ensure a healthy response was given
+    try:
+        resp.raise_for_status()
+    except:
+        print(f"failed creating connector: {json.dumps(resp.json(), indent=2)}")
+        exit(1)
+    print("connector created successfully.")
+    print("Use kafka-console-consumer and kafka-topics to see data!")
+
+
+if __name__ == "__main__":
+    configure_connector()
+
+psql classroom
+\d clicks
+\q
+python ...
+curl http://localhost:8083/connectors | python -m json.tool
+
+curl http://localhost:8083/connectors/clicks-jdbc/status | python -m json.tool
+
+kc logs
+
+tail -f /var/log/kafka/
+tail -f /var/log/journal/confluent-kafka-connect-service.log
+kafka-topics --list --zookeeper localhost:2181
+kafka-console-consumer --bootstrap-server localhost:9092 --topic solution3.clicks --from-beginning
+
+Kafka REST Proxy
+Some applications, for legacy reasons or otherwise, will not be able to integrate a Kafka client directly. Kafka REST Proxy can be used to send and receive data to Kafka topics in these scenarios using only HTTP.
+1 o mes instancies
+json to kafka over REST
+kafka to json over REST
+Cannot create topics, get topic metadata
+Schema registry using AVRO
+Scenarios where can't use a client library.
+
+PAC Fetching Cluster Metadata from REST Proxy
+
+import json
+
+import requests
+
+
+REST_PROXY_URL = "http://localhost:8082"
+
+
+def get_topics():
+    """Gets topics from REST Proxy"""
+    # TODO: See: https://docs.confluent.io/current/kafka-rest/api.html#get--topics
+    resp = requests.get(f"{REST_PROXY_URL}/topics")  # TODO
+
+    try:
+        resp.raise_for_status()
+    except:
+        print("Failed to get topics {json.dumps(resp.json(), indent=2)})")
+        return []
+
+    print("Fetched topics from Kafka:")
+    print(json.dumps(resp.json(), indent=2))
+    return resp.json()
+
+
+def get_topic(topic_name):
+    """Get specific details on a topic"""
+    # TODO: See: https://docs.confluent.io/current/kafka-rest/api.html#get--topics
+    resp = requests.get(f"{REST_PROXY_URL}/topics/{topic_name}")  # TODO
+
+    try:
+        resp.raise_for_status()
+    except:
+        print("Failed to get topics {json.dumps(resp.json(), indent=2)})")
+
+    print("Fetched topics from Kafka:")
+    print(json.dumps(resp.json(), indent=2))
+
+
+def get_brokers():
+    """Gets broker information"""
+    # TODO See: https://docs.confluent.io/current/kafka-rest/api.html#get--brokers
+    resp = requests.get(f"{REST_PROXY_URL}/brokers")  # TODO
+
+    try:
+        resp.raise_for_status()
+    except:
+        print("Failed to get brokers {json.dumps(resp.json(), indent=2)})")
+
+    print("Fetched brokers from Kafka:")
+    print(json.dumps(resp.json(), indent=2))
+
+
+def get_partitions(topic_name):
+    """Prints partition information for a topic"""
+    # TODO: Using the above endpoints as an example, list
+    #       partitions for a given topic name using the API
+    #
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#get--topics-(string-topic_name)-partitions
+    resp = requests.get(f"{REST_PROXY_URL}/topics/{topic_name}/partitions")  # TODO
+
+    try:
+        resp.raise_for_status()
+    except:
+        print("Failed to get partitions {json.dumps(resp.json(), indent=2)})")
+
+    print("Fetched partitions from Kafka:")
+    print(json.dumps(resp.json(), indent=2))
+
+
+if __name__ == "__main__":
+    topics = get_topics()
+    get_topic(topics[0])
+    get_brokers()
+    get_partitions(topics[-1])
+
+print(topics)
+kafka-topics --list --zookeeper localhost:2181
+matches
+can see configuration details
+
+Summary - Kafka REST Proxy
+
+    Is a web server built in Java and Scala that allows any client capable of HTTP to integrate with Kafka
+    Allows production and consumption of Kafka data
+    Allows read-only operations on administrative information and metadata
+
+Using REST Proxy
+In this section you will see first-hand how to 
+produce and consume data with the 
+Kafka REST Proxy. 
+Though REST Proxy is conceptually similar to 
+traditional Kafka clients, we will highlight 
+some of the important differences and 
+considerations.
+
+REST Proxy Producer
+    POST data to /topics/<topic_name> to produce data)
+    The Kafka data may be POSTed in Binary, JSON, or Avro
+    When sending Avro data you must always include the schema data as a string
+    Always check your Content-Type header to ensure that it is correctly configured
+        Content-Type is in the format application/vnd.kafka[.embedded_format].[api_version]+[serialization_format]
+        embedded_format is how the data destined for Kafka is formatted. Must be one of binary, json, or avro
+        api_version is the API version for REST Proxy -- this should always be v2 as of this writing
+            serialization_format has nothing to do with your Kafka data, this is how the actual data being sent to REST proxy is serialized. Only json is supported for now -- so always set this to json!
+    When using REST Proxy, always start by ensuring that the Content-Type is correctly set before running your code. A misconfigured Content-Type can lead to confusing and hard-to-debug errors.
+
+PAC Producing JSON Data with REST Proxy
+
+from dataclasses import asdict, dataclass, field
+import json
+import time
+import random
+
+import requests
+from confluent_kafka import avro, Consumer, Producer
+from confluent_kafka.avro import AvroConsumer, AvroProducer, CachedSchemaRegistryClient
+from faker import Faker
+
+
+faker = Faker()
+REST_PROXY_URL = "http://localhost:8082"
+
+
+def produce():
+    """Produces data using REST Proxy"""
+
+    # TODO: Set the appropriate headers
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#content-types
+    headers = {"Content-Type": "application/vnd.kafka.json.v2+json"}
+    # TODO: Define the JSON Payload to b sent to REST Proxy
+    #       To create data, use `asdict(ClickEvent())`
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#post--topics-(string-topic_name)
+    data = {"records": [{"value": asdict(ClickEvent())}]}
+    # TODO: What URL should be used?
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#post--topics-(string-topic_name)
+    resp = requests.post(
+        f"{REST_PROXY_URL}/topics/lesson4.solution5.click_events",  # TODO
+        data=json.dumps(data),
+        headers=headers,
+    )
+
+    try:
+        resp.raise_for_status()
+    except:
+        print(f"Failed to send data to REST Proxy {json.dumps(resp.json(), indent=2)}")
+
+    print(f"Sent data to REST Proxy {json.dumps(resp.json(), indent=2)}")
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+    number: int = field(default_factory=lambda: random.randint(0, 999))
+
+
+def main():
+    """Runs the simulation against REST Proxy"""
+    try:
+        while True:
+            produce()
+            time.sleep(0.5)
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+if __name__ == "__main__":
+    main()
+
+another terminal
+
+kafka-console-consumer -topic lesson4.solution5.click_events --bootstrap-server localhost:9092 --from-beginning
+
+AVRO PAC
+
+from dataclasses import asdict, dataclass, field
+import json
+import time
+import random
+
+import requests
+from confluent_kafka import avro, Consumer, Producer
+from confluent_kafka.avro import AvroConsumer, AvroProducer, CachedSchemaRegistryClient
+from faker import Faker
+
+
+faker = Faker()
+REST_PROXY_URL = "http://localhost:8082"
+
+AVRO_SCHEMA = """{
+    "type": "record",
+    "name": "click_event",
+    "fields": [
+        {"name": "email", "type": "string"},
+        {"name": "timestamp", "type": "string"},
+        {"name": "uri", "type": "string"},
+        {"name": "number", "type": "int"}
+    ]
+}"""
+
+
+def produce():
+    """Produces data using REST Proxy"""
+
+    # TODO: Set the appropriate headers
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#content-types
+    headers = {"Content-Type": "application/vnd.kafka.avro.v2+json"}
+    # TODO: Update the below payload to include the Avro Schema string
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#post--topics-(string-topic_name)
+    data = {"value_schema": AVRO_SCHEMA, "records": [{"value": asdict(ClickEvent())}]}
+    resp = requests.post(
+        f"{REST_PROXY_URL}/topics/lesson4.solution6.click_events",  # TODO
+        data=json.dumps(data),
+        headers=headers,
+    )
+
+    try:
+        resp.raise_for_status()
+    except:
+        print(f"Failed to send data to REST Proxy {json.dumps(resp.json(), indent=2)}")
+
+    print(f"Sent data to REST Proxy {json.dumps(resp.json(), indent=2)}")
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+    number: int = field(default_factory=lambda: random.randint(0, 999))
+
+
+def main():
+    """Runs the simulation against REST Proxy"""
+    try:
+        while True:
+            produce()
+            time.sleep(0.5)
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+if __name__ == "__main__":
+    main()
+
+kafka-console-consumer -topic lesson4.solution6.click_events --bootstrap-server localhost:9092 --from-beginning
+
+REST Proxy Consumer
+    POST to /consumers/<group_name> to create a consumer group)
+    POST to /consumers/<group_name>/instances/<instance_id>/subscriptions to create a subscription-instances-(string-instance)-subscription)
+    GET from /consumers/<group_name>/instances/<instance_id>/records to retrieve records-instances-(string-instance)-records)
+        Always check your Accept header to ensure that it is correctly configured
+            Content-Type is in the format application/vnd.kafka[.embedded_format].[api_version]+[serialization_format]
+            embedded_format is how the data requested from Kafka is formatted. Must be one of binary, json, or avro
+            api_version is the API version for REST Proxy -- this should always be v2 as of writing
+            serialization_format has nothing to do with your Kafka data, this is how the actual data being received from REST proxy is serialized. Only json is supported for now -- so always set this to json!
+    DELETE to /consumers/<group_name>/instances/<instance_id>/subscriptions to unsubscribe a coinsumer-instances-(string-instance)-subscription)
+
+POC Consumer AVRO.
+
+import asyncio
+from dataclasses import asdict, dataclass, field
+import json
+import time
+import random
+
+import requests
+from confluent_kafka import avro, Consumer, Producer
+from confluent_kafka.avro import AvroConsumer, AvroProducer, CachedSchemaRegistryClient
+from faker import Faker
+
+
+faker = Faker()
+REST_PROXY_URL = "http://localhost:8082"
+TOPIC_NAME = "lesson4.solution7.click_events"
+CONSUMER_GROUP = f"solution7-consumer-group-{random.randint(0,10000)}"
+
+
+async def consume():
+    """Consumes from REST Proxy"""
+    # TODO: Define a consumer name
+    consumer_name = "solution7-consumer"
+    # TODO: Define the appropriate headers
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#content-types
+    headers = {"Content-Type": "application/vnd.kafka.json.v2+json"}
+    # TODO: Define the consumer group creation payload
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#post--consumers-(string-group_name)
+    data = {"name": consumer_name, "format": "avro"}
+    # TODO: POST to the appropiate endpoint to create a consumer group
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#post--consumers-(string-group_name)
+    resp = requests.post(
+        f"{REST_PROXY_URL}/consumers/{CONSUMER_GROUP}",
+        data=json.dumps(data),
+        headers=headers,
+    )
+    try:
+        resp.raise_for_status()
+    except:
+        print(
+            f"Failed to create REST proxy consumer: {json.dumps(resp.json(), indent=2)}"
+        )
+        return
+    print("REST Proxy consumer group created")
+
+    resp_data = resp.json()
+    #
+    # TODO: Create the subscription payload
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#consumers
+    #
+    data = {"topics": [TOPIC_NAME]}
+    #
+    # TODO: POST the subscription payload
+    #       See: https://docs.confluent.io/current/kafka-rest/api.html#consumers
+    #
+    resp = requests.post(
+        f"{resp_data['base_uri']}/subscription", data=json.dumps(data), headers=headers
+    )
+    try:
+        resp.raise_for_status()
+    except:
+        print(
+            f"Failed to subscribe REST proxy consumer: {json.dumps(resp.json(), indent=2)}"
+        )
+        return
+    print("REST Proxy consumer subscription created")
+    while True:
+        #
+        # TODO: Set the Accept header to the same data type as the consumer was created with
+        #       See: https://docs.confluent.io/current/kafka-rest/api.html#get--consumers-(string-group_name)-instances-(string-instance)-records
+        #
+        headers = {"Accept": "application/vnd.kafka.avro.v2+json"}
+        #
+        # TODO: Begin fetching records
+        #       See: https://docs.confluent.io/current/kafka-rest/api.html#get--consumers-(string-group_name)-instances-(string-instance)-records
+        #
+        resp = requests.get(f"{resp_data['base_uri']}/records", headers=headers)
+        try:
+            resp.raise_for_status()
+        except:
+            print(
+                f"Failed to fetch records with REST proxy consumer: {json.dumps(resp.json(), indent=2)}"
+            )
+            return
+        print("Consumed records via REST Proxy:")
+        print(f"{json.dumps(resp.json())}")
+        await asyncio.sleep(0.1)
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+    number: int = field(default_factory=lambda: random.randint(0, 999))
+
+    schema = avro.loads(
+        """{
+        "type": "record",
+        "name": "click_event",
+        "namespace": "com.udacity.lesson3.exercise2",
+        "fields": [
+            {"name": "email", "type": "string"},
+            {"name": "timestamp", "type": "string"},
+            {"name": "uri", "type": "string"},
+            {"name": "number", "type": "int"}
+        ]
+    }"""
+    )
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = AvroProducer(
+        {
+            "bootstrap.servers": "PLAINTEXT://localhost:9092",
+            "schema.registry.url": "http://localhost:8081",
+        }
+    )
+    try:
+        while True:
+            p.produce(
+                topic=topic_name,
+                value=asdict(ClickEvent()),
+                value_schema=ClickEvent.schema,
+            )
+            await asyncio.sleep(0.1)
+    except:
+        raise
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer tasks"""
+    t1 = asyncio.create_task(produce(topic_name))
+    t2 = asyncio.create_task(consume())
+    await t1
+    await t2
+
+
+def main():
+    """Runs the simulation against REST Proxy"""
+    try:
+        asyncio.run(produce_consume(TOPIC_NAME))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+if __name__ == "__main__":
+    main()
+
+execute
+borrar el subscription
+
+Using REST Proxy - Summary
+REST Proxy is a powerful tool for integration applications into Kafka that could not otherwise use it.
+
+REST Proxy offers a comprehensive API for producing and consuming data from Kafka topics, and even provides fine-grained control over consumer groups, offsets, and partitions.
+
+Keep REST Proxy in Mind!
+Throughout this section you’ve seen how you can easily leverage the HTTP API of REST Proxy to integrate applications directly into your Kafka ecosystem. While the HTTP API may not be as nice as a native Kafka client, it still provides a fairly straightforward path for integration.
+
+As Kafka grows within your organization, you will likely find applications that can’t integrate with Kafka for one reason or another. When that happens, look to REST Proxy!
+

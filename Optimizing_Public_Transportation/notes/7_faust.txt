@@ -1,0 +1,425 @@
+Stream Processing with Faust
+    In this lesson, you will learn how to construct stream processing applications 
+    using the Faust framework. Faust was developed at the financial services company, 
+    Robinhood, as a Python-native alternative to many of the JVM-only stream processing 
+    frameworks like Kafka Streams and Flink. 
+    By the end of this lesson, you will know how to create powerful stream processing 
+    applications quickly, and with minimal code!
+Faust is built using modern Python features such as asyncio. Faust is embeddable as a library in existing applications. It can also be configured to be deployed as a stand-alone application in your infrastructure. Faust implements storage, time windowing, streams, tables, and many of the aggregate functions discussed in Lesson 5. It is important to note that Faust requires Python 3.6+ and does not support Avro or Schema Registry natively at this time.
+
+Robinhood Faust - Key Points
+    Built at Robinhood to tackle stream processing problems natively in Python
+    Faust takes its design inspiration from Kafka Streams, a JVM-only framework
+    Faust is built using modern Python features like asyncio, and requires Python 3.6 or higher
+    Faust’s API implements the storage, windowing, aggregation, and other concepts discussed in Lesson 5
+    Faust is a native Python API, not a Domain Specific Language (DSL) for metaprogramming
+    Requires no external dependency other than Kafka. Does not require a resource manager like Yarn or Mesos.
+    Faust does not natively support Avro or Schema Registry
+
+FAUST PAC
+
+import faust
+
+#
+# TODO: Create the faust app with a name and broker
+#
+app = faust.App("hello-world-faust", broker="localhost:9092")
+
+#
+# TODO: Connect Faust to a topic
+#
+topic = app.topic("com.udacity.streams.clickevents")
+
+#
+# TODO: Provide an app agent to execute this function on topic event retrieval
+#
+@app.agent(topic)
+async def clickevent(clickevents):
+    async for ce in clickevents:
+        print(ce)
+
+
+if __name__ == "__main__":
+    app.main()
+
+kafka-topics --list --zookeeper localhost:2181
+    entre altres
+        com.udacity.streams.clickevents
+python exercise6.1.solution.py -> 1000 opcions
+python exercise6.1.solution.py worker -> consumeix tot
+
+Deserializing and serializing data into native Python objects can make working with streaming data simpler and easier to test. In the following section you will see how to map your internal Python data structures to incoming and outgoing data with Faust.
+
+Python Dataclasses
+    A dataclass is a special type of Class in which instances are meant to represent data, but not contain mutating functions.
+    Python dataclass objects can be marked as frozen, which makes them immutable
+        Nothing in Python is truly immutable, but this attribute gets you about as close as you can get
+    dataclass objects require type annotations on fields and will enforce those constraints on creation. This helps ensure you’re always working with data in the expected format, reducing and preventing errors.
+    Can be paired with the asdict function to quickly transform dataclasses into dictionaries
+    New in Python 3.7
+    Default to using dataclass to work with data coming into and out of your Faust applications unless you have a good reason not to
+
+Faust Deserialization
+Topic deserialization in Faust is a simple and painless process. 
+Similar to how you might specify a schema for key and value to confluent_kafka, with Faust you can provide key and value types. These value types may be primitives such as int or str, or complex types represented as objects.
+
+Faust Deserialization - Key Points
+    All data model classes must inherit from the faust.Record class if you wish to use them with a Faust topic.
+    It is a good idea to specify the serializer type on your so that Faust will deserialize data in this format by default.
+    It is a good practice to set validation=True on your data models. When set to true, Faust will enforce that the data being deserialized from Kafka matches the expected type.
+    E.g., if we expect a str for a field, but receive an int, Faust will raise an error.
+    Use Faust codecs to build custom serialization and deserialization
+
+PAC
+
+from dataclasses import asdict, dataclass
+import json
+
+import faust
+
+
+#
+# TODO: Define a ClickEvent Record Class
+#
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+
+app = faust.App("sample2", broker="kafka://localhost:9092")
+
+#
+# TODO: Provide the key and value type to the clickevent
+#
+clickevents_topic = app.topic(
+    "com.udacity.streams.clickevents",
+    key_type=str,
+    value_type=ClickEvent,
+)
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    async for ce in clickevents:
+        print(json.dumps(asdict(ce), indent=2))
+
+
+if __name__ == "__main__":
+    app.main()
+
+Faust Serialization - Key Points
+    Serialization in Faust leverages the same faust.Record that we saw in the deserialization section. Faust runs the serializer in reverse to serialize the data for the output stream.
+    Multiple serialization codecs may be specified for a given model
+    e.g., serialization=”binary|json”. This means, when serializing, encode to json, then base64 encode the data.
+
+PAC
+
+from dataclasses import asdict, dataclass
+import json
+
+import faust
+
+
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+
+
+@dataclass
+class ClickEventSanitized(faust.Record):
+    timestamp: str
+    uri: str
+    number: int
+
+
+app = faust.App("exercise3", broker="kafka://localhost:9092")
+clickevents_topic = app.topic("com.udacity.streams.clickevents", value_type=ClickEvent)
+
+#
+# TODO: Define an output topic for sanitized click events, without the user email
+#
+sanitized_topic = app.topic(
+    "com.udacity.streams.clickevents.sanitized",
+    key_type=str,
+    value_type=ClickEventSanitized,
+)
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    async for clickevent in clickevents:
+        #
+        # TODO: Modify the incoming click event to remove the user email.
+        #
+        sanitized = ClickEventSanitized(
+            timestamp=clickevent.timestamp,
+            uri=clickevent.uri,
+            number=clickevent.number
+        )
+        #
+        # TODO: Send the data to the topic you created above
+        #
+        await sanitized_topic.send(key=sanitized.uri, value=sanitized)
+
+if __name__ == "__main__":
+    app.main()
+
+python exercise6.3.solution.py worker -> consumeix tot
+
+kafka-console-consumer --bootstrap-server localhost:9092 --topic com.udacity.streams.clickevents.sanitized
+
+STORAGE.
+In this section you will learn about the storage options available for Faust applications, 
+including in-memory and RocksDB-based storage.
+
+State -> changelog -> kafka topic -> scale -> RocksDB
+
+In memory storage (default)
+    restarts -> rebuilt state (changelog topic)
+    state too large
+        -> desaventatges
+RocksDB
+
+Streams with faust
+Life Cycle
+    aiokafka i offsets, consumer groups
+
+PAC
+
+from dataclasses import asdict, dataclass
+import json
+
+import faust
+
+
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+
+
+app = faust.App("exercise4", broker="kafka://localhost:9092")
+clickevents_topic = app.topic("com.udacity.streams.clickevents", value_type=ClickEvent)
+popular_uris_topic = app.topic(
+    "com.udacity.streams.clickevents.popular",
+    key_type=str,
+    value_type=ClickEvent,
+)
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    #
+    # TODO: Filter clickevents to only those with a number higher than or
+    #       equal to 100
+    #       See: https://faust.readthedocs.io/en/latest/userguide/streams.html#filter-filter-values-to-omit-from-stream
+    #
+    async for clickevent in clickevents.filter(lambda x: x.number >= 100):
+        #
+        # TODO: Send the message to the `popular_uris_topic` with a key and value.
+        #
+        await popular_uris_topic.send(key=clickevent.uri, value=clickevent)
+
+if __name__ == "__main__":
+    app.main()
+
+p --- worker
+-> genero dades al topic
+-> les consumeixo del topic
+kafka-console-consumer --bootstrap-server localhost:9092 --topic com.udacity.streams.clickevents.popular
+
+Faust Stream Processors and Operations
+    Faust provides the ability to provide pre-defined processor callbacks for data streams. Processors can add missing fields, change the meaning of fields, and perform any kind of desired processing.
+
+Faust Processors - Key Points
+    Processors are functions that take a value and return a value and can be added in a pre-defined list of callbacks to your stream declarations
+    Processors promote reusability and clarity in your code
+    Processors may execute synchronously or asynchronously within the context of your code
+    All defined processors will run, in the order they were defined, before the final value is generated.
+
+Faust Operations - Key Points
+    Faust Operations are actions that can be applied to an incoming stream to create an intermediate stream containing some modification, such as a group by or filter
+    The group_by operation ingests every incoming event from a source topic, and emits it to an intermediate topic with the newly specified key
+    The filter operation uses a boolean function to determine whether or not a particular record should be kept or discarded. Any records that are kept are written to a new intermediate stream.
+    The take operation bundles groups of events before invoking another iteration of the stream. Be careful to specify the within datetime.timedelta argument to this function, otherwise your program may hang.
+    Faust provides a number of other operations that you may use when working with your streams. Have a look at the documentation for further information.
+
+POC PROCESSORS i OPERATORS
+
+from dataclasses import asdict, dataclass
+import json
+import random
+
+import faust
+
+
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+    score: int = 0
+
+
+#
+# TODO: Define a scoring function for incoming ClickEvents.
+#       It doens't matter _how_ you score the incoming records, just perform
+#       some modification of the `ClickEvent.score` field and return the value
+#
+def add_score(clickevent):
+    clickevent.score = random.randint(0, 100)
+    return clickevent
+
+
+app = faust.App("exercise5", broker="kafka://localhost:9092")
+clickevents_topic = app.topic("com.udacity.streams.clickevents", value_type=ClickEvent)
+scored_topic = app.topic(
+    "com.udacity.streams.clickevents.scored",
+    key_type=str,
+    value_type=ClickEvent,
+)
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    #
+    # TODO: Add the `add_score` processor to the incoming clickevents
+    #       See: https://faust.readthedocs.io/en/latest/reference/faust.streams.html?highlight=add_processor#faust.streams.Stream.add_processor
+    #
+    clickevents.add_processor(add_score)
+    async for ce in clickevents:
+        await scored_topic.send(key=ce.uri, value=ce)
+
+if __name__ == "__main__":
+    app.main()
+
+Faust Tables
+    Faust provides an API for creating stateful applications with streaming Tables.
+
+POC tables
+
+from dataclasses import asdict, dataclass
+import json
+import random
+
+import faust
+
+
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+
+
+app = faust.App("exercise6", broker="kafka://localhost:9092")
+clickevents_topic = app.topic("com.udacity.streams.clickevents", value_type=ClickEvent)
+
+#
+# TODO: Define a uri summary table
+#
+uri_summary_table = app.Table("uri_summary", default=int)
+
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    #
+    # TODO: Group By URI
+    #
+    async for ce in clickevents.group_by(ClickEvent.uri):
+        #
+        # TODO: Use the URI as key, and add the number for each click event
+        #
+        uri_summary_table[ce.uri] += ce.number
+        print(f"{ce.uri}: uri_summary_table[ce.uri]")
+
+
+if __name__ == "__main__":
+    app.main()
+    
+
+WINDOWING
+    Tumbling and hopping
+
+from dataclasses import asdict, dataclass
+from datetime import timedelta
+import json
+import random
+
+import faust
+
+
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+
+
+app = faust.App("exercise7", broker="kafka://localhost:9092")
+clickevents_topic = app.topic("com.udacity.streams.clickevents", value_type=ClickEvent)
+
+#
+# TODO: Define a tumbling window of 10 seconds
+#
+uri_summary_table = app.Table("uri_summary", default=int).tumbling(
+    timedelta(seconds=10)
+)
+
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    async for ce in clickevents.group_by(ClickEvent.uri):
+        uri_summary_table[ce.uri] += ce.number
+        print(f"{ce.uri}: {uri_summary_table[ce.uri].current()}")
+
+
+if __name__ == "__main__":
+    app.main()
+
+HOPPING
+
+from dataclasses import asdict, dataclass
+from datetime import timedelta
+import json
+import random
+
+import faust
+
+
+@dataclass
+class ClickEvent(faust.Record):
+    email: str
+    timestamp: str
+    uri: str
+    number: int
+
+
+app = faust.App("exercise8", broker="kafka://localhost:9092")
+clickevents_topic = app.topic("com.udacity.streams.clickevents", value_type=ClickEvent)
+
+#
+# TODO: Define a hopping window of 1 minute with a 10-second step
+#
+uri_summary_table = app.Table("uri_summary", default=int).hopping(
+    size=timedelta(minutes=1),
+    step=timedelta(seconds=10)
+)
+
+
+@app.agent(clickevents_topic)
+async def clickevent(clickevents):
+    async for ce in clickevents.group_by(ClickEvent.uri):
+        uri_summary_table[ce.uri] += ce.number
+        print(f"{ce.uri}: {uri_summary_table[ce.uri].current()}")
+
+
+if __name__ == "__main__":
+    app.main()
+    

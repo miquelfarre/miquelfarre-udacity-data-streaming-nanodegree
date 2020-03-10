@@ -1,0 +1,96 @@
+
+data stream. facts.
+    infinits events
+    records inmutables (in, out), no constants, no sempre del mateix tamany
+    habitualment menors a 1Mb (in, out). thousands per second
+    update the data -> new register (anterior inmutable)
+
+Stream processing examples
+    log analysis/web analytics/
+    real time pricing based on events: environmental factors, instantaneous demand. No val un batch 1 cop al dia, 
+        la naturalesa de la operacio demanda resposta mes frequent.
+Target
+    Finding patterns and meaningful data in disparate log messages in a microservices architecture
+    Tracking user-engagement in real time with streaming website analytics
+    Real-time pricing in ride-sharing applications based on demand and environmental conditions
+    Stock buying/selling based on price, news, and social media sentiment
+     
+Batch Processing
+Runs on a scheduled basis
+May run for a longer period of time and write results to a SQL-like store
+May analyze all historical data at once
+Typically works with mutable data and data stores
+
+Stream Processing
+Runs at whatever frequency events are generated
+Typically runs quickly, updating in-memory aggregates
+Stream Processing applications may simply emit events themselves, rather than write to an event store
+Typically analyzes trends over a limited period of time due to data volume
+Typically analyzes immutable data and data stores
+Batch and Stream processing are not mutually exclusive. 
+    Batch systems can create events to feed into stream processing applications, and similarly, 
+        stream processing applications can be part of batch processing analyses.
+Streaming Data Store
+    May look like a message queue, as is the case with Apache Kafka
+    May look like a SQL store, as is the case with Apache Cassandra
+    Responsible for holding all of the immutable event data in the system
+    Provides guarantee that data is stored ordered according to the time it was produced
+    Provides guarantee that data is produced to consumers in the order it was received
+    Provides guarantee that the events it stores are immutable and unchangeable
+Stream Processing Application and Framework
+    Stream Processing applications sit downstream of the data store
+    Stream Processing applications ingest real-time event data from one or more data streams
+    Stream Processing applications aggregate, join, and find differences in data from these streams
+    Common Stream Processing Application Frameworks in use today include:
+        Confluent KSQL
+        Kafka Streams
+        Apache Flink
+        Apache Samza
+        Apache Spark Structure Streaming
+        Faust Python Library
+Benefits of Stream Processing
+    Faster for scenarios where a limited set of recent data is needed
+    More scalable due to distributed nature of storage
+    Provides a useful abstraction that decouples applications from each other
+    Allows one set of data to satisfy many use-cases which may not have been predictable when the dataset was originally created
+    Built-in ability to replay events and observe exactly what occurred, and in what order, 
+        provides more opportunities to recover from error states or dig into how a particular result was arrived at
+Key concepts to remember about stream processing
+    Stream processing applications consist of a stream data store and a stream processing application framework
+    Stream processing solutions do not operate on a scheduled basis
+    Stream processing solutions provide real-time insights based on event data
+    Stream processing solutions are built around generic data events, allowing for flexibility in data processing and highly scalable applications
+    Batch and stream processing solutions can coexist and feed into each other
+
+Append-only logs
+CDC: Change data capture
+SQL -> Replication only purposes  
+
+Log structure storage: event driven architectures, append-only logs
+    - many append-only logs
+    - periodically merged (or joined in one file)
+    - periodically compacted based on age
+    - many log files to avoid I/O bottlenecks
+
+Append-only logs
+    Append-only logs are text files in which incoming events are written to the end of the log as they are received.
+    This simple concept -- of only ever appending, or adding, data to the end of a log file -- is what 
+        allows stream processing applications to ensure that events are ordered correctly even at high throughput and scale.
+    We can take this idea a step farther, and say that in fact, streams are append-only logs.
+Log-structured streaming
+    Log-structured streams build upon the concept of append-only logs. One of the hallmarks of log-structured storage 
+        systems is that at their core they utilize append-only logs.
+    Common characteristics of all log-structured storage systems are that they simply append data to log files on disk.
+    These log files may store data indefinitely, for a specific time period, or until a specific size is reached.
+    There are typically many log files on disk, and these log files are merged and compacted occasionally.
+    When a log file is merged it means that two or more log files are joined together into one log file.
+    When a log file is compacted it means that data from one or more files is deleted. Deletion is typically determined 
+        by the age of a record. The oldest records are removed, while the newest stay.
+    Examples of real world log-structured data stores: Apache HBase, Apache Cassandra, Apache Kafka
+Further Research on Append-Only Logs
+    Apache Cassandra
+    Apache HBase
+    Apache Kafka
+Log-Structured Storage
+    One of the key innovations over the past decade in computing has been the emergence of log-structured storage 
+        as a primary means of storing data.

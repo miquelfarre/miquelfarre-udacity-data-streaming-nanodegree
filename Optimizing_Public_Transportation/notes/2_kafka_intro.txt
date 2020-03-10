@@ -1,0 +1,96 @@
+Apache Kafka as a Stream Processing Tool
+    Kafka is one of the most popular streaming data platforms in the industry today.
+    Provides an easy-to-use message queue interface on top of its append-only log-structured storage medium
+    Kafka is a log of events
+    In Kafka, an event describes something that has occurred, as opposed to a request for an action to be performed
+    Kafka is distributed by default
+    Fault tolerant by design, meaning it is hard to lose data if a node is suddenly lost
+    Kafka scales from 1 to thousands of nodes
+    Kafka provides ordering guarantees for data stored within it, meaning that the order in which data is received 
+        is the order in which data will be produced to consumers
+    Commonly used data store for popular streaming tools like Apache Spark, Flink, and Samza
+Kafka History
+    Created at Linkedin to service internal stream processing needs
+    Kafka is one of the Apache Foundation’s most popular projects
+    Used widely in production. Some famous users include Uber, Apple, and Airbnb
+    Creators of Kafka left LinkedIn to found Confluent, which now acts as the owner and leader of the Kafka project
+    Jay Kreps, one of the core authors of Apache Kafka, named the system after Czech author Franz Kafka. 
+        Kreps, who enjoys Kafka’s work, thought the name was a good fit because Kafka was built to be a “system optimized for writing.”
+Kafka in Use in Industry
+    The term source is sometimes used to refer to Kafka clients which are producing data into Kafka, 
+        typically in reference to another data store
+    The term sink is sometimes used to refer to Kafka clients which are extracting data from Kafka, 
+        typically in reference to another data store
+
+Kafka topics, producers, consumers
+Kafka Topics
+    Used to organize and segment datasets, similar to SQL database tables
+    Unlike SQL database tables, Kafka Topics are not queryable.
+    May be created programmatically, from a CLI (Command Line Interface), or automatically
+    Consist of key-value data in binary format
+Kafka Producers
+    Send event data into Kafka topics
+    Integrate with client libraries in languages like Java, Python, Go, as well as many other languages
+Kafka Consumers
+    Pull event data from one or more Kafka Topics
+    Integrate with Kafka via a Client Library written in languages like Python, Java, Go, and more
+    By default only consume data that was produced after the consumer 
+        first connected to the topic. Historical data will not be consumed by default.
+ PRACTICA BASE CLI
+    ./startup.sh
+    llista de topics
+    kafka-topics --list --zookeeper localhost:2181
+    creo topic
+    kafka-topics --create --topic "my-first-topic" --partitions 1 --replication-factor 1 --zookeeper localhost:2181
+    successfully created 
+    kafka-topics --list --zookeeper localhost:2181 --topic "my-first-topic"
+    produeixo -> afegeixo missatges
+    kafka-console-producer --topic "my-first-topic" --broker-list PLAINTEXT://localhost:9092
+    consumeixo -> nothing happens
+    kafka-console-consumer --topic "my-first-topic" --bootstrap-server PLAINTEXT://localhost:9092
+    consumeixo from beginning
+    kafka-console-consumer --topic "my-first-topic" --bootstrap-server PLAINTEXT://localhost:9092 --from-beginning
+    esborro topic
+    kafka-topics --delete --topic "my-first-topic" --zookeeper localhost:2181
+    successfully deleted
+    kafka-topics --list --zookeeper localhost:2181 
+PRACTICA BASE PYTHON 
+    ./startup.sh
+    1). 
+        client = AdminClient({"bootstrap.servers": BROKER_URL})
+        topic = NewTopic(TOPIC_NAME, num_partitions=1, replication_factor=1)
+        client.create_topics([topic])
+        client.delete_topics([topic])
+
+python sample2.py -> nothing, not production or consumption
+tail -f /var/log/journal/confluent-kafka.service.log
+
+    2).
+        p = Producer({"bootstrap.servers": BROKER_URL})
+        p.produce(topic_name, f"Message: {curr_iteration}")
+        c = Consumer({"bootstrap.servers": BROKER_URL, "group_id": "first-python-consumer-group"})
+        c.subscribe([topic_name])
+        message = c.poll(1.0)
+        if message is None:
+            print("No message received!")
+        elif message.error() is not None:
+            print(f"Message had an error{message.error()}")
+        else: 
+            printf(f"Key: {message.key()}, Value: {message.value()}")
+
+Kafka in Action - Summary
+Throughout this section you learned how Kafka works and how to interact with it.
+
+You learned:
+
+A Kafka Topic is how Kafka organizes and segments datasets
+A Kafka Producer is an application that emits event data into a Kafka Topic
+A Kafka Consumer is an application that pulls event data from one or more Kafka Topics
+How to use the Kafka CLI Tools, such as kafka-topics, kafka-console-producer, and kafka-console-consumer
+How to use the confluent-kafka-python library to create a topic, producer, and consumer
+
+Lesson Summary
+In this lesson you were introduced to the concepts of data streaming. 
+    You learned about streaming data stores, like Apache Kafka, and the concepts that make them possible such as append-only logs 
+        and log-structured storage. We also went hands-on with Apache Kafka and learned 
+            how to use a few command line tools to create and manage topics, as well as produce and consume data.

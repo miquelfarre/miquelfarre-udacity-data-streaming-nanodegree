@@ -1,0 +1,68 @@
+Stream Processing Fundamentals
+Stream processing applications make use of streaming data stores like Apache Kafka to provide real-time analytics. Developing an understanding of common strategies, calculations, and learning how to handle data based on time will prepare you for building these applications and getting the most out of your data.
+
+Strategies
+This section introduces a number of core stream processing strategies, such as combining, filtering, aggregating, and reducing streams.
+
+Combining Streams
+    Combining, or joining, streams is the action of taking one or more streams and creating a single new output stream.
+    Joined streams always share some common attribute across the data in all of the streams. For example, we might use a user_id to merge user streams.
+    State must be kept as events flow through the join calculation, until all of the related data has arrived. Once this happens, the new event can be emitted, and the state can be flushed
+        If the related data never fully arrives, at some point the data in memory should be cleared
+        This process is typically accomplished through windowing, which is covered in a later section of this lesson.
+
+Filtering Streams
+    Filtering a stream is the process of removing unwanted or unneeded data from an input stream, and outputting the desired data into a new stream
+    Filtering may be a step in joining or combining two or more streams
+    Filtering is often desirable when data clients don’t need access to all data for throughput or security reasons
+    Applying filters earlier, rather than later, in the processing pipeline, can allow stream processing calculations to scale better and analyze less data.
+
+Remapping Streams
+    Remapping streams is the process of transforming an input event and outputting it in a different form to a new stream
+    Remapping may be done in conjunction with other processing steps, such as filters or joins
+    Remapping is commonly used for data health, application compatibility, and security reasons
+    Example Scenario 1: Transforming one data serialization format to another. E.g., Avro -> JSON, or JSON-> Avro
+    Example Scenario 2: Removing sensitive or unnecessary fields from an input payload
+    Example Scenario 3: Transforming an input event into a format suitable for downstream use by moving data fields or renaming them
+
+Aggregating Streams
+    An aggregation involves taking two or more distinct events and creating one or more new events based on a transformation function
+    Aggregate Functions: Max, Min, Sum, TopN, HIstograms, Sets, Lists, and more
+    Aggregates in streaming applications almost always involve a timeframe, unless the source topic is compacted
+
+Handling Time
+Understanding time and how it applies to our data is a critical part of building a successful stream processing application. In the following sections we will review the various types of time windowing.
+
+Tumbling Window
+    Tumbling windows represent a fixed period of time that rolls over after that period of time has elapsed
+        ex: A 15 minute tumbling window started now would include all data from now until the 15th minute. On the 15th minute, the data is cleared and a new 15 minute window is started.
+    Tumbling windows do not overlap
+    Tumbling windows do not have gaps between windowed periods
+
+Hopping Windows
+    Hopping windows have both a duration and an increment by which they are advanced
+        ex.- A window of 45 minutes with an increment of 5 minutes would advance every 5 minutes. The oldest 5 minutes of the previous window would be dropped, and the newest 5 minutes of data would be added.
+    Hopping windows can overlap with previous windows
+    Hopping windows can have gaps if the increment time is larger than the duration period
+
+Sliding Window
+    Similar to Hopping Window, except the increment is not directly configurable and updates in real-time
+        A sliding window of the last 12 hours always includes all of the last 12 hours of data. Data is expired as soon as it reaches the 12-hour threshold, and new data is added as soon as it is received.
+    Sliding Windows have no gaps between windows
+    Sliding Windows do overlap
+Streams
+    Order series of inmutable events, ordered, unbounded
+Tables
+    Are the result of aggregation operations in stream processing applications. They are a roll-up, point-in-time view of data.
+    Ordered, mutable, not necessary ordered
+Streams and tables are not opposing concepts. 
+    In practice, the differentiation of a stream from a table in a stream processing application serves as a description of the type of data that is produced. 
+    Applications that are performing aggregations across incoming data are creating tables. 
+    Applications that are transforming incoming data into an unending sequence of events are streams.
+Data Storage
+Table operations are stateful, meaning we must store the intermediate results of combining multiple events to represent the latest point-in-time value for a given key. Therefore, table operations require some form of storage. Options range from using in-memory storage, to dedicated databases such as RocksDB. In this section, we’ll review the options that are available.
+RocksDB
+Summary
+    Common strategies for stream processing applications, such as filtering, joins, and aggregates
+    Time windowing for stateful aggregations
+    What types of data storage options are typical of streaming applications

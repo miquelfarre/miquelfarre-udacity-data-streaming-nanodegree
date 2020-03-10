@@ -1,0 +1,269 @@
+Stream Processing with KSQL
+    In this lesson we’ll review how we can use KSQL to build stream processing applications simply by writing SQL-like statements! In contrast to Faust, we’re not actually going to build an application using a programming language like Python. Instead, KSQL will transform our SQL commands into running stream processing applications for us!
+    Throughout this lesson, you’ll see how KSQL can express all the familiar concepts of stream processing applications with the exclusive use of SQL syntax.
+
+KSQL -> Kafka topics to streams
+
+KSQL provides a SQL-like interface to transform Kafka Topics into streams and tables.
+
+Joins, aggregates, filtering, and other forms of data manipulation can then be 
+expressed over these streams and tables.
+
+CREATE TABLE user(
+    username: VARCHAR,
+    email: VARCHAR
+) WITH (
+    KAFKA_TOPIC='user_topic',
+    VALUE_FORMAT='JSON'
+)
+
+KSQL is a Java application built on top of the Kafka Streams Java stream processing library. 
+KSQL is a web-server with a REST API that accepts incoming or preconfigured requests containing SQL-like commands. 
+These commands are translated by the KSQL server into the equivalent Kafka Streams application and then executed.
+Users can interact with KSQL via a REST API, its dedicated CLI, or predefined SQL files.
+Kafka as changelog, RocksDB for local storage.
+
+KSQL vs. Traditional Frameworks
+Pros
+    It is often simpler to use KSQL and SQL than to build and deploy an entire application
+    KSQL is typically a better fit for rapid experimentation and exploration than a full stream processing application
+    KSQL doesn’t require a particular programming language, like Python for Faust, or Java for Kafka Streams
+    KSQL already comes bundled with standard logs, metrics, and tooling for you to use, so you don’t have to build it yourself
+Cons
+    SQL does not always best capture certain types of data manipulation or remapping scenarios
+    Can’t just use whatever other libraries you want like you can with Faust
+    However, KSQL does allow User Defined Functions (UDFs), written in Java
+
+Turning Kafka Topics into Tables and Streams
+    Every KSQL Table or Stream is derived from an underlying Kafka Topic
+    Use the SHOW TOPICS command in KSQL CLI to see all available topics
+
+Stream Creation
+    Creating Streams from an underlying topic requires you to specify column names and their types
+    You must also specify the serialization format as one of JSON, AVRO, or DELIMITED (csv)
+    You must also specify the underlying topic name
+    You may create a stream from another existing stream with CREATE STREAM <stream_name> AS SELECT …
+
+CREATE STREAM purchases(
+    username: VARCHAR,
+    currency: VARCHAR,
+    amount: INT
+) WITH (
+    KAFKA_TOPIC='purchases',
+    VALUE_FORMAT='JSON'
+)
+
+CREATE STREAM purchases_high_value AS
+    SELECT * FROM purchases WHERE amount > 1000
+
+
+Creating a Stream
+In this demonstration you'll learn a few ways to create a KSQL Stream. Once you've created your stream, you'll also see how to delete them.
+
+Throughout this lesson we will refer to two topics:
+
+com.udacity.streams.clickevents
+com.udacity.streams.pages
+com.udacity.streams.pages has the following data shape:
+
+Key: <uri: string> Value: ``` { "uri": , "description": , "created": , }
+
+
+
+`com.udacity.streams.clickevents` has the following data shape:
+
+**Key**: `<uri: string>`
+**Value**: ```
+{
+  "email": <string>,
+  "timestamp": <string>,
+  "uri": <string>,
+  "number": <int>
+}
+Showing Topics
+The first step is to open the KSQL CLI.
+
+
+root@c9827c86286f:/home/workspace# ksql
+
+                  ===========================================
+                  =        _  __ _____  ____  _             =
+                  =       | |/ // ____|/ __ \| |            =
+                  =       | ' /| (___ | |  | | |            =
+                  =       |  <  \___ \| |  | | |            =
+                  =       | . \ ____) | |__| | |____        =
+                  =       |_|\_\_____/ \___\_\______|       =
+                  =                                         =
+                  =  Streaming SQL Engine for Apache Kafka® =
+                  ===========================================
+
+Copyright 2017-2018 Confluent Inc.
+
+CLI v5.1.3, Server v5.1.3 located at http://localhost:8088
+
+Having trouble? Type 'help' (case-insensitive) for a rundown of how things work!
+
+ksql>
+With the CLI Open, lets now see what Kafka Topics we have available to us:
+
+
+ksql> SHOW TOPICS;
+
+ Kafka Topic                     | Registered | Partitions | Partition Replicas | Consumers | ConsumerGroups
+-------------------------------------------------------------------------------------------------------------
+ _confluent-metrics              | false      | 12         | 1                  | 0         | 0
+ _schemas                        | false      | 1          | 1                  | 0         | 0
+ com.udacity.streams.clickevents | false      | 1          | 1                  | 0         | 0
+ com.udacity.streams.pages       | false      | 1          | 1                  | 0         | 0
+ connect-configs                 | false      | 1          | 1                  | 0         | 0
+ connect-offsets                 | false      | 25         | 1                  | 0         | 0
+ connect-status                  | false      | 5          | 1                  | 0         | 0
+-------------------------------------------------------------------------------------------------------------
+you can see the two topics we're interested in -- com.udacity.streams.clickevents and com.udacity.streams.pages.
+
+Creating Streams
+Next, we're going to create a stream for ClickEvents.
+
+
+CREATE STREAM clickevents
+  (email VARCHAR,
+   timestamp VARCHAR,
+   uri VARCHAR,
+   number INTEGER)
+  WITH (KAFKA_TOPIC='com.udacity.streams.clickevents',
+        VALUE_FORMAT='JSON');
+Viewing available streams
+We can see all available streams by running the SHOW STREAMS command
+
+
+ksql> SHOW STREAMS;
+
+ Stream Name | Kafka Topic                     | Format
+-------------------------------------------------------
+ CLICKEVENTS | com.udacity.streams.CLICKEVENTS | JSON
+-------------------------------------------------------
+Create a Stream with a Query
+KSQL Also allows for the creation of Streams derived from queries.
+
+SELECT * FROM CLICKEVENTS LIMIT 10
+
+CREATE STREAM popular_uris AS
+  SELECT * FROM clickevents
+  WHERE number >= 100;
+This would create a stream with clickevents with more than or equal to 100 interactions
+
+Deleting a Stream
+Finally, lets see how we can delete a stream.
+
+
+DROP STREAM popular_uris;
+You will immediately receive an error like the following:
+
+
+ksql> DROP STREAM popular_uris;
+Cannot drop POPULAR_URIS.
+The following queries read from this source: [].
+The following queries write into this source: [CSAS_POPULAR_URIS_0].
+You need to terminate them before dropping POPULAR_URIS.
+Under the covers KSQL is running a query to populate this stream. We first need to terminate that query before we can terminate the stream.
+
+SHOW QUERIES
+
+TERMINATE QUERY CSAS_POPULAR_URIS_0;
+DROP STREAM popular_uris;
+Now we have successfully terminated the underlying query and terminated the stream!
+
+Topic Management
+In this demonstration, we created two streams -- popular_uris and clickevents.
+
+If we SHOW TOPICS; we'll notice a few interesting things:
+
+
+ksql> SHOW TOPICS;
+
+ Kafka Topic                     | Registered | Partitions | Partition Replicas | Consumers | ConsumerGroups
+-------------------------------------------------------------------------------------------------------------
+ _confluent-metrics              | false      | 12         | 1                  | 0         | 0
+ _schemas                        | false      | 1          | 1                  | 0         | 0
+ com.udacity.streams.clickevents | true       | 10         | 1                  | 0         | 0
+ com.udacity.streams.pages       | false      | 10         | 1                  | 0         | 0
+ connect-configs                 | false      | 1          | 1                  | 0         | 0
+ connect-offsets                 | false      | 25         | 1                  | 0         | 0
+ connect-status                  | false      | 5          | 1                  | 0         | 0
+ POPULAR_URIS                    | false      | 4          | 1                  | 0         | 0
+-------------------------------------------------------------------------------------------------------------
+First, POPULAR_URIS topic has been created and is still present. By default, this is how KSQL behaves. If you'd like to clean up the topic you need to do it manually. Second, why was a POPULAR_URIS topic created, but not one for the stream CLICKEVENTS? POPULAR_URIS actually required modification to the data, so, an intermediate topic was created. CLICKEVENTS, however, required no modification, so the underlying topic is used as-is.
+
+Creating a Table
+Creating a table is very similar to creating a Stream. In this demo, you'll learn the syntax and see the handful of small differences between creating Tables and Streams.
+
+Managing Offsets
+Like all Kafka Consumers, KSQL by default begins consumption at the latest offset. This can be a problem for some scenarios. In the following example we're going to create a pages table -- but -- we want all the data available to us in this table. In other words, we want KSQL to start from the earliest offset. To do this, we will use the SET command to set the configuration variabl auto.offset.reset for our session -- and before we run any commands.
+
+SET 'auto.offset.reset' = 'earliest';
+
+Also note that this can be set at the KSQL server level, if you'd like.
+
+Once you're done querying or creating tables or streams with this value, you can set it back to its original setting by simply running:
+
+UNSET 'auto.offset.reset';
+
+Creating a Table
+To create a table, as with a stream, specify a name, the fields, and the source topic
+
+
+CREATE TABLE pages
+  (uri VARCHAR,
+   description VARCHAR,
+   created VARCHAR)
+  WITH (KAFKA_TOPIC='com.udacity.streams.pages',
+        VALUE_FORMAT='JSON',
+        KEY='uri');
+The only new field we have provided here is KEY, which is the string key that uniquely identifies our records. Remember with KSQL TABLEs we will keep track of the latest value for a given key, not all values we have ever seen for a key.
+
+Creating a Table from a Query
+Tables, like Streams, may also be derived from queries. Lets create a Table of all pages whose url starts with the letter a.
+
+
+CREATE TABLE a_pages AS
+  SELECT * FROM pages WHERE uri LIKE 'http://www.a%';
+Describing Tables and Streams
+KSQL can provide a lot of valuable information to us with the DESCRIBE command:
+
+
+ksql> DESCRIBE pages;
+
+Name                 : PAGES
+ Field       | Type
+-----------------------------------------
+ ROWTIME     | BIGINT           (system)
+ ROWKEY      | VARCHAR(STRING)  (system)
+ URI         | VARCHAR(STRING)
+ DESCRIPTION | VARCHAR(STRING)
+ CREATED     | VARCHAR(STRING)
+-----------------------------------------
+For runtime statistics and query details run: DESCRIBE EXTENDED <Stream,Table>;
+This command is useful for understanding what columns and column types are defined on your tables.
+
+Deleting a Table
+As with Streams, we must first find the running underlying query, and then drop the table.
+
+First, find your query:
+
+
+ksql> SHOW QUERIES;
+
+ Query ID                | Kafka Topic      | Query String
+----------------------------------------------------------------------------------------------
+  CTAS_A_PAGES_1      | A_PAGES      | CREATE TABLE a_pages AS
+    SELECT * FROM pages WHERE uri LIKE 'http://www.a%';
+----------------------------------------------------------------------------------------------
+For detailed information on a Query run: EXPLAIN <Query ID>;
+Find your query, which in this case is CTAS_A_PAGES_1
+
+and then, finally, TERMINATE the query and DROP the table:
+
+
+TERMINATE QUERY CTAS_A_PAGES_1;
+DROP TABLE A_PAGES;
+​

@@ -1,0 +1,733 @@
+Kafka’s Operational Architecture
+How Kafka Stores Data
+Kafka High-Availability and Data-loss prevention with Data replication
+Data retention policies
+
+Kafka Architecture
+    Kafka servers are referred to as brokers
+    All of the brokers that work together are referred to as a cluster
+    Clusters may consist of just one broker, or thousands of brokers
+    Apache Zookeeper is used by Kafka brokers to determine which broker is the leader of a given partition and topic
+    Zookeeper keeps track of which brokers are part of the Kafka cluster
+    Zookeeper stores configuration for topics and permissions (Access Control Lists - ACLs)
+    ACLs are Permissions associated with an object. In Kafka, this typically refers to a user’s permissions 
+        with respect to production and consumption, and/or the topics themselves.
+    Kafka nodes may gracefully join and leave the cluster
+    Kafka runs on the Java Virtual Machine (JVM)
+Kafka Clustering - Key Points
+    Kafka servers are referred to as brokers and organized into clusters.
+    Kafka uses Apache Zookeeper to keep track of topic and ACL configuration, as well as determine leadership and cluster management.
+    Usage of ZooKeeper means that Kafka brokers can typically seamlessly join and leave clusters, 
+        allowing Kafka to grow easily as its usage increases or decreases.
+Kafka data storage: text files in broker disk
+Kafka data partitioning: hi ha un broker lead per cada partition, pero pot estar replicat.
+    Improve speed and scalability
+Kafka data replication
+    Data a many brokers (partition)
+    broker leads, replicas
+    Si lead falla, zookeeper decideix nou lider
+    Configurable
+Kafka pac
+    ./startup.sh
+    kafka-topics --create --topic "kafka-arch" --partitions 1 --replication-factor 1 --zookeeper localhost:2181
+    ls -alh /var/lib/kafka/data 
+        fitxers interns i una folder kafka-arch
+            vim log file -> buida
+    kafka-console-producer --topic "kafka-arch" --broker-list PLAINTEXT://localhost:9092
+        poso uns missatges
+    ls -alh /var/lib/kafka/data/(log file)
+        ja no esta buit -> representacio en binari
+    kafka-topics --alter --topic "kafka-arch" --partitions 3 --zookeeper localhost:2181
+    ls -alh /var/lib/kafka/data | grep kafka-arch 
+        3 folders
+    kafka-console-producer --topic "kafka-arch" --broker-list PLAINTEXT://localhost:9092 -> produim mes data
+        veig data als logs de les 3 folders
+How Kafka Works - Summary
+    A Kafka Broker is an individual Kafka server
+    A Kafka Cluster is a group of Kafka Brokers
+    Kafka uses Zookeeper to elect topic leaders and store its own configuration
+    Kafka writes log files to disk on the Kafka brokers themselves
+    How Kafka achieves scale and parallelism with topic partitions
+    How Kafka provides resiliency and helps prevent data loss with data replication
+Kafka Topics in Depth
+    Kafka Topics are rich in configuration options. 
+    To get the most out of Kafka you will need to develop a strong understanding of how these options impact performance. 
+    This will include understanding how to replicate topics in Kafka.
+
+Data replica a nivell de topic, in sync replica factor (quants replicas estan up to date amb el lead). No molt alt. ACK !
+
+Partitioning Topics Tips and Equation
+The “right” number of partitions is highly dependent on the scenario.
+The most important number to understand is desired throughput. How many MB/s do you need to achieve to hit your goal?
+You can easily add partitions at a later date by modifying a topic.
+Partitions have performance consequences. They require additional networking latency and potential rebalances, leading to unavailability.
+Determine the number of partitions you need by dividing the overall throughput you want by the throughput per single consumer partition or the throughput per single producer partition. 
+    Pick the larger of these two numbers to determine the needed number of partitions.
+# Partitions = Max(Overall Throughput/Producer Throughput, Overall Throughput/Consumer Throughput)
+Example from video, with 3 Producers and 5 Consumers, each operating at 10MB/s per single producer/consumer partition: 
+    Max(100MBs/(3 * 10MB/s), 100MBs/(5 * 10MB/s)) = Max(2) ~= *4 partitions needed*
+Naming Conventions
+The only enforced rules for topic names are that they must be less than 256 characters, 
+    consist only of alphanumeric characters (a-z, A-Z, 0-9), “.”, “_”, or “-”.
+There is no idiomatic or universally correct naming convention.
+Naming conventions can help reduce confusion, save time, and even increase reusability.
+Example of a naming convention:
+    Consider starting with a namespace, like com.udacity
+    Consider segmenting on schema or model type, like com.udacity.lesson, where lesson is the model
+    Consider segmenting on event type, like com.udacity.lesson.quiz_complete, where quiz_complete is the event
+Data Management - Key Points
+Data retention determines how long Kafka stores data in a topic.
+    The retention.bytes, retention.ms settings control retention policy
+When data expires it is deleted from the topic.
+    This is true if cleanup.policy is set to delete
+Retention policies may be time based. Once data reaches a certain age it is deleted.
+    The retention.ms setting controls retention policy on time
+Retention policies may be size based. Once a topic reaches a certain age the oldest data is deleted.
+    The retention.bytes setting controls retention policy on time
+Retention policies may be both time- and size-based. Once either condition is reached, the oldest data is deleted.
+Alternatively, topics can be compacted in which there is no size or time limit for data in the topic.
+    This is true if cleanup.policy is set to compact
+Compacted topics use the message key to identify messages uniquely. If a duplicate key is found, the latest value for that key is kept, and the old message is deleted.
+Kafka topics can use compression algorithms to store data. This can reduce network overhead and save space on brokers. Supported compression algorithms include: lz4, ztsd, snappy, and gzip.
+    compression.type controls the type of message compression for a topic
+Kafka topics should store data for one type of event, not multiple types of events. Keeping multiple event types in one topic will cause your topic to be hard to use for downstream consumers.
+    Time Based Expiration: 24 hores de purchase data
+    Size Based Expiration: Limited Resources Machine
+    Log compaction: List of countries in the world
+    Time and Size Expiration: 7 days of logs.
+Topic creation pac
+    crearlos amb carinyo. No automaticament.
+    bash scripts, terraform
+
+//CODI. Mes profunditat qie abans
+
+./startup.sh
+
+# Please complete the TODO items in this code
+
+import asyncio
+
+from confluent_kafka import Consumer, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+def topic_exists(client, topic_name):
+    """Checks if the given topic exists"""
+   topic_metadata = client.list_topics(timeout=5)
+   return topic_metadata.topics.get(topic_name) is not None
+
+
+def create_topic(client, topic_name):
+    """Creates the topic with the given topic name"""
+    # TODO: Create the topic. Make sure to set the topic name, the number of partitions, the
+    # replication factor. Additionally, set the config to have a cleanup policy of delete, a
+    # compression type of lz4, delete retention milliseconds of 2 seconds, and a file delete delay
+    # milliseconds of 2 second.
+    #
+    # See: https://docs.confluent.io/current/clients/confluent-kafka-python/#confluent_kafka.admin.NewTopic
+    # See: https://docs.confluent.io/current/installation/configuration/topic-configs.html
+    futures = client.create_topics(
+        [
+            NewTopic(
+                topic=topic_name,
+                num_partitions=3,
+                replication_factor=1,
+                config={
+                    "cleanup.policy": "delete",
+                    "compression.type": "lz4",
+                    "delete.retention.ms": "2000",
+                    "file.delete.delay.ms": "2000",
+                },
+            )
+        ]
+    )
+
+    for topic, future in futures.items():
+        try:
+            future.result()
+            print("topic created")
+        except Exception as e:
+            print(f"failed to create topic {topic_name}: {e}")
+            raise
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
+
+    #
+    # TODO: Decide on a topic name
+    #
+    topic_name = "sample2"
+    exists = topic_exists(client, topic_name)
+    print(f"Topic {topic_name} exists: {exists}")
+
+    if exists is False:
+        create_topic(client, topic_name)
+
+    try:
+        asyncio.run(produce_consume(topic_name))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    t1 = asyncio.create_task(produce(topic_name))
+    t2 = asyncio.create_task(consume(topic_name))
+    await t1
+    await t2
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+
+    curr_iteration = 0
+    while True:
+        p.produce(topic_name, f"iteration {curr_iteration}".encode("utf-8"))
+        curr_iteration += 1
+        await asyncio.sleep(0.5)
+
+
+async def consume(topic_name):
+    """Consumes data from the Kafka Topic"""
+    c = Consumer({"bootstrap.servers": BROKER_URL, "group.id": "0"})
+    c.subscribe([topic_name])
+    while True:
+        message = c.poll(1.0)
+        if message is None:
+            print("no message received by consumer")
+        elif message.error() is not None:
+            print(f"error from consumer {message.error()}")
+        else:
+            print(f"consumed message {message.key()}: {message.value()}")
+        await asyncio.sleep(2.5)
+
+
+if __name__ == "__main__":
+    main()
+
+In this section you learned:
+    What topic partitioning is and how it can help speed and scalability
+    How Kafka replicates topic data for failure recovery
+    How to configure data retention policies for Kafka topics
+    How to name your Kafka topics
+    How to compress data stored in your Kafka topic
+
+Kafka Producers
+In this section you will learn the specifics of how Kafka Producers are created and managed. Specifically, you will see how to:
+    Synchronously and asynchronously send data to Kafka
+    Use key configuration options, such as batch size, client identifiers, compression, and acknowledgements
+    Specify data serializers
+Syncronous producer (Credit card transaction per fer rollback en cas de error)
+    Action->Producer->Envia event data a broker
+        -> El producer espera ACK del broker
+        -> Un cop rebut, proporciona response
+Asyncronous (Més comú, maximitzar throughput)
+    Action->Producer->Envia ++++event data a broker
+        El sistema no espera resposta, continua fent
+        -> El producer espera ACK de events, que es produirà eventualment
+        -> Un cop rebut, proporciona response
+    Puc rectificar, fire and forget...
+Serialization
+    Les dades del producer es poden serialitzar
+    binary, avro, string, csv, json
+
+Serialization/Deserialization pac
+p.flush converteix a sincron.
+
+---
+from dataclasses import dataclass, field
+import json
+import random
+
+from confluent_kafka import Consumer, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+from faker import Faker
+
+
+faker = Faker()
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+TOPIC_NAME = "org.udacity.exercise3.purchases"
+
+
+@dataclass
+class Purchase:
+    username: str = field(default_factory=faker.user_name)
+    currency: str = field(default_factory=faker.currency_code)
+    amount: int = field(default_factory=lambda: random.randint(100, 200000))
+
+    def serialize(self):
+        """Serializes the object in JSON string format"""
+        # TODO: Serializer the Purchase object
+        #       See: https://docs.python.org/3/library/json.html#json.dumps
+        return json.dumps(
+            {
+                "username": self.username,
+                "currency": self.currency,
+                "amount": self.amount,
+            }
+        )
+
+
+def produce_sync(topic_name):
+    """Produces data synchronously into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+
+    # TODO: Write a synchronous production loop.
+    #       See: https://docs.confluent.io/current/clients/confluent-kafka-python/#confluent_kafka.Producer.flush
+    while True:
+        # TODO: Instantiate a `Purchase` on every iteration. Make sure to serialize it before
+        #       sending it to Kafka!
+        p.produce(topic_name, Purchase().serialize())
+        p.flush()
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    create_topic(TOPIC_NAME)
+    try:
+        produce_sync(TOPIC_NAME)
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+def create_topic(client):
+    """Creates the topic with the given topic name"""
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
+    futures = client.create_topics(
+        [NewTopic(topic=TOPIC_NAME, num_partitions=5, replication_factor=1)]
+    )
+    for _, future in futures.items():
+        try:
+            future.result()
+        except Exception as e:
+            pass
+
+
+if __name__ == "__main__":
+    main()
+
+Producer Configuration Options - Summary
+    All available settings for the confluent_kafka_python library can be found in the librdkafka configuration options. 
+        confluent_kafka_python uses librdkafka under the hood and shares the exact configuration options in this document.
+    It is a good idea to always set the client.id for improved logging, debugging, and resource limiting
+    The retries setting determines how many times the producer will attempt to send a message before marking it as failed
+    If ordering guarantees are important to your application and you’ve also enabled retries, make sure that you set 
+        enable.idempotence to true
+    Producers may choose to compress messages with the compression.type setting
+    Options are none, gzip, lz4, snappy, and zstd
+    Compression is performed by the producer client if enabled
+    If the topic has its own compression setting, it must match the producer setting, otherwise the broker 
+        will decompress and recompress the message into its configured format.
+    The acks setting determines how many In-Sync Replica (ISR) Brokers need to have successfully received the message 
+        from the client before moving on
+    A setting of -1 or all means that all ISRs will have successfully received the message before the producer proceeds
+    Clients may opt to set this to 0 for performance reasons
+    The diagram below illustrates how the topic and producer may have different compression settings. 
+        However, the setting at the topic level will always be what the consumer sees.
+Algorithm	Pros	Cons
+    lz4	fast compression and decompression	not a high compression ratio
+    snappy	fast compression and decompression	not a high compression ratio
+    zstd	high compression ratio	not as fast as lz4 or snappy
+    gzip	ubiquitous, widely-supported	cpu-intensive, significantly slower than lz4 or snappy
+
+Producer Configuration Recap
+In this section we learned the following about Producer configuration:
+
+acks determine how many ISRs must acknowledge a message before the producer continues
+client.id is an optional, but useful, setting for debugging
+Producers support lz4, snappy, gzip, and zstd compression
+lz4 and snappy are the fastest algorithms
+zstd and gzip provide a higher compression ratio
+retries determine how many times to try to resend a message
+
+Batching Configuration
+    Batching messages together for efficiency
+    time, count, size -> customizable
+
+Configure a producer
+
+./startup.sh
+from dataclasses import dataclass, field
+import json
+import random
+
+from confluent_kafka import Consumer, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+from faker import Faker
+
+
+faker = Faker()
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+TOPIC_NAME = "org.udacity.exercise4.purchases"
+
+
+def produce(topic_name):
+    """Produces data synchronously into the Kafka Topic"""
+    #
+    # TODO: Configure the Producer to:
+    #       1. Have a Client ID
+    #       2. Have a batch size of 100
+    #       3. A Linger Milliseconds of 1 second
+    #       4. LZ4 Compression
+    #
+    #       See: https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+    #
+    p = Producer(
+        {
+            "bootstrap.servers": BROKER_URL,
+            "client.id": "ex4",
+            "linger.ms": 1000,
+            "compression.type": "lz4",
+            "batch.num.messages": 100,
+        }
+    )
+
+    while True:
+        p.produce(topic_name, Purchase().serialize())
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    create_topic(TOPIC_NAME)
+    try:
+        produce(TOPIC_NAME)
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+def create_topic(client):
+    """Creates the topic with the given topic name"""
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
+    futures = client.create_topics(
+        [NewTopic(topic=TOPIC_NAME, num_partitions=5, replication_factor=1)]
+    )
+    for _, future in futures.items():
+        try:
+            future.result()
+        except Exception as e:
+            pass
+
+
+@dataclass
+class Purchase:
+    username: str = field(default_factory=faker.user_name)
+    currency: str = field(default_factory=faker.currency_code)
+    amount: int = field(default_factory=lambda: random.randint(100, 200000))
+
+    def serialize(self):
+        """Serializes the object in JSON string format"""
+        return json.dumps(
+            {
+                "username": self.username,
+                "currency": self.currency,
+                "amount": self.amount,
+            }
+        )
+
+
+if __name__ == "__main__":
+    main()
+
+Kafka Producers - Summary
+    Kafka Producers are rich in options and configuration. In this section you’ve seen how to adapt your producer code to a wide-variety of real world situations through configuration.
+    Remember, no one set of settings works in all scenarios. If your producer application isn’t performing the way you expect, it’s worth revisiting your producer configuration to ensure that the settings make sense for the throughput level you are hoping to achieve.
+
+Kafka Consumers
+    In this section you will learn the specifics of how Kafka Consumers are created and managed. Specifically, you will see how to:
+
+    Pull data from one or more Kafka topics into your application
+    Use key configuration options, such as consumers and consumers groups, offsets, and offset commits
+    Understand and handle topic rebalances
+    Specify data deserializers
+
+Kafka Consumers - Key Points
+    client.id is an optional setting which is useful in debugging and resource limiting
+    Poll for data to read data from Kafka
+        poll
+        consume
+
+Consumer Offsets - Key Points
+    Kafka keeps track of what data a consumer has seen with offsets
+        Kafka stores offsets in a private internal topic
+        Most client libraries automatically send offsets to Kafka for you on a periodic basis
+        You may opt to commit offsets yourself, but it is not recommended unless there is a specific use-case.
+        Offsets may be sent synchronously or asynchronously
+        Committed offsets determine where the consumer will start up
+            If you want the consumer to start from the first known message, [set auto.offset.reset to earliest]
+            This will only work the first time you start your consumer. On subsequent restarts it will pick up wherever it left off
+            If you always want your consumer to start from the earliest known message, you must manually assign your consumer to the start of the topic on boot
+
+PAC offsets
+./startup.sh
+
+
+import asyncio
+
+from confluent_kafka import Consumer, Producer, OFFSET_BEGINNING
+from confluent_kafka.admin import AdminClient, NewTopic
+
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+async def consume(topic_name):
+    """Consumes data from the Kafka Topic"""
+    # Sleep for a few seconds to give the producer time to create some data
+    await asyncio.sleep(2.5)
+
+    # TODO: Set the offset reset to earliest
+    c = Consumer(
+        {
+            "bootstrap.servers": BROKER_URL,
+            "group.id": "0",
+            "auto.offset.reset": "earliest",
+        }
+    )
+
+    # TODO: Configure the on_assign callback
+    c.subscribe([topic_name], on_assign=on_assign)
+
+    while True:
+        message = c.poll(1.0)
+        if message is None:
+            print("no message received by consumer")
+        elif message.error() is not None:
+            print(f"error from consumer {message.error()}")
+        else:
+            print(f"consumed message {message.key()}: {message.value()}")
+        await asyncio.sleep(0.1)
+
+
+def on_assign(consumer, partitions):
+    """Callback for when topic assignment takes place"""
+    # TODO: If the topic is configured to use `offset_earliest` set the partition offset to
+    # the beginning or earliest
+    for partition in partitions:
+        partition.offset = OFFSET_BEGINNING
+
+    # TODO: Assign the consumer the partitions
+    consumer.assign(partitions)
+
+
+def main():
+    """Runs the exercise"""
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
+    try:
+        asyncio.run(produce_consume("com.udacity.lesson2.exercise5.iterations"))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+
+    curr_iteration = 0
+    while True:
+        p.produce(topic_name, f"iteration {curr_iteration}".encode("utf-8"))
+        curr_iteration += 1
+        await asyncio.sleep(0.1)
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    t1 = asyncio.create_task(produce(topic_name))
+    t2 = asyncio.create_task(consume(topic_name))
+    await t1
+    await t2
+
+
+if __name__ == "__main__":
+    main()
+
+Consumer Groups - Key Points
+    All Kafka Consumers belong to a Consumer group
+        The group.id parameter is required and identifies the globally unique consumer group
+        Consumer groups consist of one or more consumers
+    Consumer groups increase throughput and processing speed by allowing many consumers of topic data. However, only one consumer in the consumer group receives any given message.
+    If your application needs to inspect every message in a topic, create a consumer group with a single member
+    Adding or removing consumers causes Kafka to rebalance
+        During a rebalance, a broker group coordinator identifies a consumer group leader
+        The consumer group leader reassigns partitions to the current consumer group members
+        During a rebalance, messages may not be processed or consumed
+
+Topic Subscriptions - Key Points
+    You subscribe to a topic by specifying its name
+        If you wanted to subscribe to com.udacity.lesson.views, you would simply specify the full name as ”com.udacity.lesson.views”
+        Make sure to set allow.auto.create.topics to false so that the topic isn’t created by the consumer if it does not yet exist
+    One consumer can subscribe to multiple topics by using a regular expression
+        The format for the regular expression is slightly different. If you wanted to subscribe to com.udacity.lesson.views.lesson1 and com.udacity.lesson.views.lesson2 you would specify the topic name as ”^com.udacity.lesson.views.*”
+        The topic name must be prefixed with ”^” for the client to recognize that it is a regular expression, and not a specific topic name
+        Use regexp to specify your regular expressions.
+        See the confluent_kafka_python subscribe() documentation for more information
+
+Deserializers - Key Points
+Remember to deserialize the data you are receiving from Kafka in an appropriate format
+    If the producer used JSON, you will need to deserialize the data using a JSON library
+    If the producer used bytes or string data, you may not have to do anything
+Consumer groups increase fault tolerance and resiliency by automatically redistributing partition assignments if one or more members of the consumer group fail.
+
+Retrieving Data from Kafka - Key Points
+Most Kafka Consumers will have a “poll” loop which loops infinitely and ingests data from Kafka
+Here is a sample poll loop:
+    while True:
+    message = c.poll(1.0)
+    if message is None:
+    print("no message received by consumer")
+    elif message.error() is not None:
+    print(f"error from consumer {message.error()}")
+    else:
+    print(f"consumed message {message.key()}: {message.value()}")
+It is possible to use either poll or consume, but poll is slightly more feature rich
+Make sure to call close() on your consumer before exiting and to consume any remaining messages
+    Failure to call close means the Kafka Broker has to recognize that the consumer has left the consumer group, which takes time and failed messages. Try to avoid this if you can.
+
+Consumer PAC
+
+import asyncio
+from dataclasses import dataclass, field
+import json
+import random
+
+from confluent_kafka import Consumer, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+from faker import Faker
+
+
+faker = Faker()
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+async def consume(topic_name):
+    """Consumes data from the Kafka Topic"""
+    c = Consumer({"bootstrap.servers": BROKER_URL, "group.id": "0"})
+    c.subscribe([topic_name])
+
+    while True:
+        #
+        # TODO: Write a loop that uses consume to grab 5 messages at a time and has a timeout.
+        #       See: https://docs.confluent.io/current/clients/confluent-kafka-python/index.html?highlight=partition#confluent_kafka.Consumer.consume
+        #
+        messages = c.consume(5, timeout=1.0)
+
+        # TODO: Print something to indicate how many messages you've consumed. Print the key and value of
+        #       any message(s) you consumed
+        print(f"consumed {len(messages)} messages")
+        for message in messages:
+            print(f"consume message {message.key()}: {message.value()}")
+
+        # Do not delete this!
+        await asyncio.sleep(0.01)
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
+
+    try:
+        asyncio.run(produce_consume("com.udacity.lesson2.exercise6.purchases"))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+    while True:
+        for _ in range(10):
+            p.produce(topic_name, Purchase().serialize())
+        await asyncio.sleep(0.01)
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    t1 = asyncio.create_task(produce(topic_name))
+    t2 = asyncio.create_task(consume(topic_name))
+    await t1
+    await t2
+
+
+@dataclass
+class Purchase:
+    username: str = field(default_factory=faker.user_name)
+    currency: str = field(default_factory=faker.currency_code)
+    amount: int = field(default_factory=lambda: random.randint(100, 200000))
+
+    def serialize(self):
+        return json.dumps(
+            {
+                "username": self.username,
+                "currency": self.currency,
+                "amount": self.amount,
+            }
+        )
+
+
+if __name__ == "__main__":
+    main()
+
+Kafka Consumers - Summary
+    What high-level configuration options are available for Consumers
+    What a Kafka Consumer Group is
+    What a rebalance is, and when the occur
+    How Kafka uses Consumer Offsets to track what data a consumer has already seen
+    How to subscribe your consumer to topics
+    How to write a poll loop
+    How to deserialize data from Kafka
+    Kafka Consumers - Optional Further Research
+
+Metrics Consumer performance
+    Consumer lag
+        Latest topic offset - Consumer topic offset
+    Messages per second (throughput)
+    Java metrics exporter (JMX)
+            
+Producer performance
+    latency 
+        time broker received - time produced
+    reasons:
+        ack time too higher
+        too many partitions
+        too many replicas
+    response rate: overall delivery rate
+
+Broker performance
+    Disk usage
+    consequences:
+        data loss, downtime
+    Network usage
+        unavailable
+    Election frequency
+        disruptive, unstable
+
+Performance Considerations - Summary
+Monitoring Kafka Consumers, Producers, and Brokers for performance is an important part of using Kafka. There are many metrics by which to measure your Kafka cluster. Focus on these key metrics to get started:
+    Consumer Lag: The difference between the latest offset in the topic and the most recently committed consumer offset
+    Producer Response Rate: The rate at which the broker is responding to the producer indicating message status
+    Producer Request Latency: The length of time a producer has to wait for a response from the broker after sending a message
+    Broker Disk Space
+    Broker Elections
+
+Record removal
+    Right data to be removed.
+Message Expiration
+Log compaction
+    Missatge amb key X i valor null borra totes les key X
+User Encryption
+    key used to decrypt data
+    Si esborro la key, la data associada ja no es pot llegir
+
+Deleting Records and User Privacy
+    Privacy regulations like GDPR and CCPA are increasingly common and require applications to give users the right to be forgotten
+    You can accomplish this with message expiration on topics that is of shorter duration than your requirement
+    You may also use log compaction with null messages to delete data
+    The best approach is to use Daniel Lebrero’s Encrypted User Keys strategy

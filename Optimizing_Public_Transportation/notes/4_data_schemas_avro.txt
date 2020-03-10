@@ -1,0 +1,622 @@
+
+What are Data Schemas?
+    Data schemas help us define:
+        The shape of the data
+        The names of fields
+        The expected types of values
+    Whether certain data fields are optional or required.
+    Data schemas provide expectations for applications so that they can properly ingest or produce data that match that specification
+    Data schemas are used for communication between software
+    Data schemas can help us create more efficient representations with compression
+    Data schemas help systems develop independently of each other
+    Data schemas are critical in data systems and applications today
+        gRPC in Kubernetes
+        Apache Avro in the Hadoop Ecosystem
+PAC data streaming
+
+import asyncio
+from dataclasses import dataclass, field
+import json
+import random
+
+from confluent_kafka import Consumer, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+from faker import Faker
+
+
+faker = Faker()
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+    while True:
+        p.produce(topic_name, ClickEvent().serialize())
+        await asyncio.sleep(1.0)
+
+
+async def consume(topic_name):
+    """Consumes data from the Kafka Topic"""
+    c = Consumer({"bootstrap.servers": BROKER_URL, "group.id": "0"})
+    c.subscribe([topic_name])
+    while True:
+        message = c.poll(1.0)
+        if message is None:
+            print("no message received by consumer")
+        elif message.error() is not None:
+            print(f"error from consumer {message.error()}")
+        else:
+            #
+            # TODO: Load the value as JSON and then create a Purchase object. The web team has told
+            #       us to expect the keys "username", "currency", and "amount".
+            #
+            #       Make sure to use a try/except block around your function in case something goes
+            #       wrong.
+            #
+            clickevent_json = json.loads(message.value())
+            try:
+                print(
+                    ClickEvent(
+                        email=clickevent_json["email"],
+                        timestamp=clickevent_json["timestamp"],
+                        uri=clickevent_json["uri"],
+                    )
+                )
+            except KeyError as e:
+                print(f"Failed to unpack message {e}")
+        await asyncio.sleep(1.0)
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    client = AdminClient({"bootstrap.servers": BROKER_URL})
+
+    try:
+        asyncio.run(produce_consume("com.udacity.lesson3.solution1.clicks"))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    t1 = asyncio.create_task(produce(topic_name))
+    t2 = asyncio.create_task(consume(topic_name))
+    await t1
+    await t2
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+
+    num_calls = 0
+
+    def serialize(self):
+        email_key = "email" if ClickEvent.num_calls < 10 else "user_email"
+        ClickEvent.num_calls += 1
+        return json.dumps(
+            {"uri": self.uri, "timestamp": self.timestamp, email_key: self.email}
+        )
+
+    @classmethod
+    def deserialize(self, json_data):
+        purchase_json = json.loads(json_data)
+        return Purchase(
+            username=purchase_json["username"],
+            currency=purchase_json["currency"],
+            amount=purchase_json["amount"],
+        )
+
+
+if __name__ == "__main__":
+    main()
+
+schemas constantly evolving
+broken consumers
+no updates necessary
+independence, compatibility
+version compatibility
+
+In this section, we reviewed the benefits of data schemas:
+    Data schemas help systems evolve independently from each other. This is beneficial at an application and an organizational level within our companies.
+    Data schemas describe the expected keys, value types, and whether certain keys are optional or required.
+    Data schemas can be used to create more efficient representations of our data models
+
+AVRO
+    Data serialization that uses binary compression (JSON).
+
+Avro Schema - Key Points
+    Apache Avro records are defined in JSON.
+    Avro records include a required name, such as "user"
+    Avro records must include a type defined as record
+    Avro records may optionally include a namespace, such as "com.udacity"
+    Avro records are required to include an array of fields that define the names of the expected fields and their associated type. Such as "fields": [{"name": "age", "type": "int"}]
+    Avro can support optional fields by specifying the field type as either null or some other type. Such as "fields": [{"name": "age", "type": [“null”, "int"]}]
+    Avro records are made up of complex and primitive types
+        Complex types are other records, arrays, maps, and others
+    Please reference the Avro documentation for full documentation and additional examples
+    Here is what a stock ticker price change schema might look like:
+        {
+            “type”: “record”,
+            “name”: “stock.price_change”,
+            “namespace”: “com.udacity”,
+            “fields”: [
+                {“name”: “ticker”, “type”: “string”},
+                {“name”: “prev_price”, “type”: “int”},
+                {“name”: “price”, “type”: “int”},
+                {“name”: “cause”, “type”: [“null”, “string”]}
+            ]
+        }
+
+PAC AVRO
+
+import asyncio
+from dataclasses import asdict, dataclass, field
+from io import BytesIO
+import json
+import random
+
+from confluent_kafka import Producer
+from faker import Faker
+from fastavro import parse_schema, writer
+
+
+faker = Faker()
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+    number: int = field(default_factory=lambda: random.randint(0, 999))
+
+    #
+    # TODO: Define an Avro Schema for this ClickEvent
+    #       See: https://avro.apache.org/docs/1.8.2/spec.html#schema_record
+    #       See: https://fastavro.readthedocs.io/en/latest/schema.html?highlight=parse_schema#fastavro-schema
+    #
+    schema = parse_schema(
+        {
+            "type": "record",
+            "name": "click_event",
+            "namespace": "com.udacity.lesson3.exercise2",
+            "fields": [
+                {"name": "email", "type": "string"},
+                {"name": "timestamp", "type": "string"},
+                {"name": "uri", "type": "string"},
+                {"name": "number", "type": "int"},
+            ],
+        }
+    )
+
+    def serialize(self):
+        """Serializes the ClickEvent for sending to Kafka"""
+        #
+        # TODO: Rewrite the serializer to send data in Avro format
+        #       See: https://fastavro.readthedocs.io/en/latest/schema.html?highlight=parse_schema#fastavro-schema
+        #
+        # HINT: Python dataclasses provide an `asdict` method that can quickly transform this
+        #       instance into a dictionary!
+        #       See: https://docs.python.org/3/library/dataclasses.html#dataclasses.asdict
+        #
+        # HINT: Use BytesIO for your output buffer. Once you have an output buffer instance, call
+        #       `getvalue() to retrieve the data inside the buffer.
+        #       See: https://docs.python.org/3/library/io.html?highlight=bytesio#io.BytesIO
+        #
+        # HINT: This exercise will not print to the console. Use the `kafka-console-consumer` to view the messages.
+        #
+        out = BytesIO()
+        writer(out, ClickEvent.schema, [asdict(self)])
+        return out.getvalue()
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+    while True:
+        p.produce(topic_name, ClickEvent().serialize())
+        await asyncio.sleep(1.0)
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    try:
+        asyncio.run(produce_consume("com.udacity.lesson3.solution2.clicks"))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    await asyncio.create_task(produce(topic_name))
+
+
+if __name__ == "__main__":
+    main()
+
+./startup.sh
+kafka-console-consumer --bootstrap-server localhost:9092 --topic "com.udacity.lesson3.exercise2.clicks" --from-beginning
+
+Avro Types
+    Full documentation is available on the Avro website
+    Primitive Types should be familiar, as they closely mirror the built-in types for many programming languages.
+        null
+        boolean
+        int
+        long
+        float
+        double
+        bytes
+        string
+    Complex Types allow nesting and advanced functionality.
+        records
+        enums
+        maps
+        arrays
+        unions
+        fixed
+
+Union: mes de 1 tipo
+Fixed: fixed entry in bytes
+
+POC complex records
+import asyncio
+from dataclasses import asdict, dataclass, field
+from io import BytesIO
+import json
+import random
+
+from confluent_kafka import Producer
+from faker import Faker
+from fastavro import parse_schema, writer
+
+
+faker = Faker()
+
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+@dataclass
+class ClickAttribute:
+    element: str = field(default_factory=lambda: random.choice(["div", "a", "button"]))
+    content: str = field(default_factory=faker.bs)
+
+    @classmethod
+    def attributes(self):
+        return {faker.uri_page(): ClickAttribute() for _ in range(random.randint(1, 5))}
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+    number: int = field(default_factory=lambda: random.randint(0, 999))
+    attributes: dict = field(default_factory=ClickAttribute.attributes)
+
+    #
+    # TODO: Update this Avro schema to include a map of attributes
+    #       See: https://avro.apache.org/docs/1.8.2/spec.html#Maps
+    #
+    schema = parse_schema(
+        {
+            "type": "record",
+            "name": "click_event",
+            "namespace": "com.udacity.lesson3.exercise2",
+            "fields": [
+                {"name": "email", "type": "string"},
+                {"name": "timestamp", "type": "string"},
+                {"name": "uri", "type": "string"},
+                {"name": "number", "type": "int"},
+                {
+                    "name": "attributes",
+                    "type": {
+                        "type": "map",
+                        "values": {
+                            "type": "record",
+                            "name": "attribute",
+                            "fields": [
+                                {"name": "element", "type": "string"},
+                                {"name": "content", "type": "string"},
+                            ],
+                        },
+                    },
+                },
+            ],
+        }
+    )
+
+    def serialize(self):
+        """Serializes the ClickEvent for sending to Kafka"""
+        out = BytesIO()
+        writer(out, ClickEvent.schema, [asdict(self)])
+        return out.getvalue()
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    p = Producer({"bootstrap.servers": BROKER_URL})
+    while True:
+        p.produce(topic_name, ClickEvent().serialize())
+        await asyncio.sleep(1.0)
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    try:
+        asyncio.run(produce_consume("com.udacity.lesson3.solution3.clicks"))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    await asyncio.create_task(produce(topic_name))
+
+
+if __name__ == "__main__":
+    main()
+
+kafka-console-consumer --bootstrap-server localhost:9092 --topic "com.udacity.lesson3.exercise3.clicks" --from-beginning
+
+Apache Avro - Summary
+In this section you learned how to use Apache Avro as a Data Schema:
+
+Avro has primitive types, such as int, string, and float
+Avro has complex types, such as record, map, and array
+Avro data is sent alongside the schema definition, so that downstream consumers can make use of it
+Avro is used widely in data engineering and the Kafka ecosystem
+
+Apache Avro and Kafka
+The Apache Kafka development community decided early on to incorporate support for Avro into Kafka and Kafka ecosystem tools. 
+    In this section, you will learn how to use Avro with Kafka.
+
+Producer must define avro schema and encode the data
+
+Schema Registry
+Confluent Schema Registry is an open-source tool that 
+    provides centralized Avro Schema storage. In this section, you’ll learn how Schema Registry can improve your Kafka Stream Processing applications.
+
+Kafka - Schema Registry Integration
+
+- Stores state in kafka
+- Schemas only sent to registry Once
+- Clients fetch schemas as needed from registry
+- Does not support deletes
+- Has HTTP interface
+- May be used in other applications
+
+- JVM
+- High portable
+- Stores all of its state in kafka private topics 
+- exposes http web server rest api 
+- standalone / clustered
+- uses zookeeper to choose leader in cluster mode
+
+PAC schema registry 
+
+import asyncio
+from dataclasses import asdict, dataclass, field
+import json
+import random
+
+from confluent_kafka import avro, Consumer, Producer
+from confluent_kafka.avro import AvroConsumer, AvroProducer, CachedSchemaRegistryClient
+from faker import Faker
+
+
+faker = Faker()
+
+SCHEMA_REGISTRY_URL = "http://localhost:8081"
+BROKER_URL = "PLAINTEXT://localhost:9092"
+
+
+@dataclass
+class ClickAttribute:
+    element: str = field(default_factory=lambda: random.choice(["div", "a", "button"]))
+    content: str = field(default_factory=faker.bs)
+
+    @classmethod
+    def attributes(self):
+        return {faker.uri_page(): ClickAttribute() for _ in range(random.randint(1, 5))}
+
+
+@dataclass
+class ClickEvent:
+    email: str = field(default_factory=faker.email)
+    timestamp: str = field(default_factory=faker.iso8601)
+    uri: str = field(default_factory=faker.uri)
+    number: int = field(default_factory=lambda: random.randint(0, 999))
+    attributes: dict = field(default_factory=ClickAttribute.attributes)
+
+    #
+    # TODO: Load the schema using the Confluent avro loader
+    #       See: https://github.com/confluentinc/confluent-kafka-python/blob/master/confluent_kafka/avro/load.py#L23
+    #
+    schema = avro.loads(
+        """{
+        "type": "record",
+        "name": "click_event",
+        "namespace": "com.udacity.lesson3.solution4",
+        "fields": [
+            {"name": "email", "type": "string"},
+            {"name": "timestamp", "type": "string"},
+            {"name": "uri", "type": "string"},
+            {"name": "number", "type": "int"},
+            {
+                "name": "attributes",
+                "type": {
+                    "type": "map",
+                    "values": {
+                        "type": "record",
+                        "name": "attribute",
+                        "fields": [
+                            {"name": "element", "type": "string"},
+                            {"name": "content", "type": "string"}
+                        ]
+                    }
+                }
+            }
+        ]
+    }"""
+    )
+
+
+async def produce(topic_name):
+    """Produces data into the Kafka Topic"""
+    #
+    # TODO: Create a CachedSchemaRegistryClient. Use SCHEMA_REGISTRY_URL.
+    #       See: https://github.com/confluentinc/confluent-kafka-python/blob/master/confluent_kafka/avro/cached_schema_registry_client.py#L47
+    #
+    schema_registry = CachedSchemaRegistryClient({"url": SCHEMA_REGISTRY_URL})
+
+    #
+    # TODO: Replace with an AvroProducer.
+    #       See: https://docs.confluent.io/current/clients/confluent-kafka-python/index.html?highlight=loads#confluent_kafka.avro.AvroProducer
+    #
+    p = AvroProducer({"bootstrap.servers": BROKER_URL}, schema_registry=schema_registry)
+    while True:
+        #
+        # TODO: Replace with an AvroProducer produce. Make sure to specify the schema!
+        #       Tip: Make sure to serialize the ClickEvent with `asdict(ClickEvent())`
+        #       See: https://docs.confluent.io/current/clients/confluent-kafka-python/index.html?highlight=loads#confluent_kafka.avro.AvroProducer
+        #
+        p.produce(
+            topic=topic_name, value=asdict(ClickEvent()), value_schema=ClickEvent.schema
+        )
+        await asyncio.sleep(1.0)
+
+
+async def consume(topic_name):
+    """Consumes data from the Kafka Topic"""
+    #
+    # TODO: Create a CachedSchemaRegistryClient
+    #
+    schema_registry = CachedSchemaRegistryClient({"url": SCHEMA_REGISTRY_URL})
+
+    #
+    # TODO: Use the Avro Consumer
+    #
+    c = AvroConsumer(
+        {"bootstrap.servers": BROKER_URL, "group.id": "0"},
+        schema_registry=schema_registry,
+    )
+    c.subscribe([topic_name])
+    while True:
+        message = c.poll(1.0)
+        if message is None:
+            print("no message received by consumer")
+        elif message.error() is not None:
+            print(f"error from consumer {message.error()}")
+        else:
+            try:
+                print(message.value())
+            except KeyError as e:
+                print(f"Failed to unpack message {e}")
+        await asyncio.sleep(1.0)
+
+
+def main():
+    """Checks for topic and creates the topic if it does not exist"""
+    try:
+        asyncio.run(produce_consume("com.udacity.lesson3.solution4.clicks"))
+    except KeyboardInterrupt as e:
+        print("shutting down")
+
+
+async def produce_consume(topic_name):
+    """Runs the Producer and Consumer tasks"""
+    t1 = asyncio.create_task(produce(topic_name))
+    t2 = asyncio.create_task(consume(topic_name))
+    await t1
+    await t2
+
+
+if __name__ == "__main__":
+    main()
+
+Schema Registry - Summary
+    Provides an HTTP REST API for managing Avro schemas
+    Many Kafka clients natively support Schema Registry interactions for you
+    Reduces network overhead, allowing producers and consumers to register schemas one time
+    Simplifies using Avro, reducing the barrier to entry for developers
+    Uses a Kafka topic to store state
+    Deployed as one or more web servers, with one leader
+    Uses ZooKeeper to manage elections
+
+Schema Evolution and Compatibility
+    Schemas change over time with new requirements. This process of schema change is known as Schema Evolution.
+    In this section, you will see how Avro and Schema Registry can aid in the process of Schema Evolution.
+    We’ll also discuss in this series of concepts how evolving schemas can be forward or backward compatible with previous versions.
+    kafka producer canvia el esquema de dades
+    modify, add, remove field
+
+Schema Compatibility
+    The process of schema change is known as Schema Evolution
+    Schema Evolution is caused by a modification to an existing data schema
+        Adding or removing a field
+        Making a field optional
+        Changing a field type
+    Schema Registry can track schema compatibility between schemas
+        Compatibility is used to determine whether or not a particular schema version is usable by a data consumer
+        Consumers may opt to use this compatibility information to preemptively refuse to process data that is incompatible with its current configuration
+        Schema Registry supports four categories of compatibility
+        Backward / Backward Transitive
+        Forward / Forward Transitive
+        Full / Full Transitive
+        None
+    Managing compatibility requires both producer and consumer code to determine the compatibility of schema changes and send those updates to Schema Registry
+
+Backward Compatibility - Key Points
+    Backward compatibility means that consumer code developed against the most recent version of an Avro Schema can use data using the prior version of a schema without modification.
+        The deletion of a field or the addition of a new optional field are backward compatible changes.
+        Update consumers before updating producers to ensure that consumers can handle the new data type
+    The BACKWARD compatibility type indicates compatibility with the current version (N) and the immediately prior version (N-1)
+    Unless you specify otherwise, Schema Registry always assumes that changes are BACKWARD compatible
+    The BACKWARD_TRANSITIVE compatibility type indicates compatibility with all prior versions (1 → N)
+
+Forward Compatibility
+    Forward compatibility means that consumer code developed against the previous version of an Avro Schema can consume data using the newest version of a schema without modification
+        The deletion of an optional field or the addition of a new field are forward compatible changes
+        Producers need to be updated before consumers
+    The FORWARD compatibility type indicates that data produced with the latest schema (N) is usable by consumers using the previous schema version (N-1)
+    The BACKWARD_TRANSITIVE compatibility type indicates that data produced with the latest schema (N) is usable by all consumers using any previous schema version (1 → N-1)
+
+Full Compatibility
+    Full compatibility means that consumers developed against the latest schema can consume data using the previous schema, and that consumers developed against the previous schema can consume data from the latest schema as well. In other words, full compatibility means that a schema change is both forward and backward compatible.
+        Changing the default value for a field is an example of a full compatible change.
+        The order in which producers or consumers are updated does not matter.
+    The FULL compatibility type indicates that data produced is both forward and backward compatible with the current (N) and previous (N-1) schema.
+    The FULL_TRANSITIVE compatibility type indicates that data produced is both forward and backward compatible with the current (N) and all previous (1 → N-1) schemas.
+
+No Compatibility (NONE Compatibility)
+    No compatibility disables compatibility checking by Schema Registry.
+        In this mode, Schema Registry simply becomes a schema repository.
+    Use of NONE compatibility is not recommended.
+    Schemas will sometimes need to undergo a change that is neither forward nor backward compatible.
+        Best practice is to create a new topic with the new schema and update consumers to use that new topic.
+        Managing multiple incompatible schemas within the same topic leads to runtime errors and code that is difficult to maintain.
+
+RESUM
+
+Schema Evolution and Compatibility - Summary
+In this section we learned:
+
+The process of changing the definition of our data schema is known as Schema Evolution.
+Schema Registry can help keep track of schema changes and their compatibility with existing schemas using its compatibility API.
+BACKWARD and BACKWARD_TRANSITIVE compatibility indicate that consumers developed against the latest version of the schema can use one or more previous schemas. BACKWARD is the default for Schema Registry.
+FORWARD and FORWARD_TRANSITIVE compatibility indicate that consumers developed against the previous (or potentially earlier) version of a schema can continue to use data with the latest schema definition.
+FULL and FULL_TRANSITIVE compatibility indicate that a schema change is both forward and backward compatible.
+NONE compatibility means that compatibility is not tracked. Use of NONE is not recommended.
+
+Lesson Recap
+In this lesson, you learned what a data schema is, and how they can help us better deal with 
+    change as it occurs within our data streams. Specifically we learned how 
+        Apache Avro works and how it integrates with tools like Schema Registry to provide producers and consumers information about the data they are consuming. Finally, we learned how to decide if a change is backward, forward, or full compatible.
